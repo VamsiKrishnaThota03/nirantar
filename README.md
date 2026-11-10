@@ -11,6 +11,9 @@ Track: **Health**.
 **▶ Live demo: https://nirantar-zbyj.onrender.com**
 *(free hosting — it sleeps when idle, so the first load can take ~50 seconds)*
 
+**▶ Walkthrough video: [`docs/demo.mp4`](docs/demo.mp4)** · 3:44, 1080p, silent
+— cue sheet for narration in [`docs/demo-cues.md`](docs/demo-cues.md)
+
 [![CI](https://github.com/VamsiKrishnaThota03/nirantar/actions/workflows/ci.yml/badge.svg)](https://github.com/VamsiKrishnaThota03/nirantar/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 ![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)
@@ -74,24 +77,43 @@ that opens with the decision requested.
 
 ### The actual output, for one real case from the demo
 
-A 25-year-old man in Gaurihar Tola. Confirmed TB, treatment never started,
-**75 days past the clinical deadline**. No phone in the household. Speaks
-Santali. Earns ₹643 on a day he works.
+A 66-year-old man in Kusmahi Khurd. Confirmed TB, treatment never started,
+**213 days past the clinical deadline**. No phone in the household. Speaks
+Santali. Earns ₹443 on a day he works, and lives 37 km from the district
+hospital.
 
 ```
-Conventional referral   →  Community Health Centre, 13 km round trip
-                           ₹747  ·  1.0 working day lost  ·  58% predicted no-show
-                           SMS in Hindi. Stock not checked.
+Conventional referral   →  Community Health Centre, Bansgaon, 49 km round trip
+                           ₹641  ·  1.0 working day lost  ·  72% predicted no-show
+                           SMS in Hindi. No escort. Stock not checked.
 
-Nirantar plan           →  Primary Health Centre, Chiraigaon, with ASHA escort
-                           ₹420  ·  0.6 working days  ·  13% predicted no-show
+Nirantar plan           →  Primary Health Centre, Kusmahi, with ASHA escort
+                           ₹368  ·  0.6 working days  ·  32% predicted no-show
                            Anti-TB FDC reserved before he is asked to travel.
-                           ASHA walks to the house — he has no phone, so there
-                           is no electronic way to reach him.
+                           An ASHA walks to the house — he has no phone, so
+                           there is no electronic way to reach him.
 ```
 
-₹327 back in the household, and the chance he actually starts treatment goes
-from 42% to 87%.
+₹273 back in the household, and the chance he actually starts treatment goes
+from 28% to 68%.
+
+Three details in there matter more than the headline:
+
+1. **It would not let a mobile van start TB treatment.** A van with a medical
+   officer aboard was cheaper and closer, and the optimiser wanted it — but
+   initiating TB treatment means registering the patient on the national
+   programme. The venue must genuinely be able to do the thing. Cheap only
+   wins where the care is equivalent.
+2. **It did not claim to have reached him in his language.** We have
+   hand-written outreach copy in Hindi and Bhojpuri; we have none in Santali.
+   So the call goes out in Hindi, it is flagged, and the attendance model
+   **keeps the language penalty** — which is part of why the prediction is 32%
+   rather than something prettier. Claiming a barrier you have not removed is
+   how pilots inflate results.
+3. **It noticed he has no phone** and routed outreach to a human being at the
+   door. If no ASHA had capacity that week, the plan would be marked
+   *undeliverable* and escalated as a contact-channel failure rather than
+   recorded as outreach.
 
 ![The five agents reporting, the chosen plan, the options it rejected, and the outreach script in Devanagari with an English gloss](docs/screenshots/03-agent-plan.png)
 

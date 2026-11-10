@@ -26,3 +26,6 @@ backend/var/
 .DS_Store
 .idea/
 .vscode/
+
+# Intermediate recording artefact; docs/demo.mp4 is the deliverable.
+docs/*.webm
