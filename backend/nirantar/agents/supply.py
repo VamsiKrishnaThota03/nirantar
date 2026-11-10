@@ -70,19 +70,30 @@ def _next_free_slot(slots: dict[str, int], not_before: date, not_after: date):
 
 
 def enumerate_options(ctx: AgentContext, debt: CareDebt) -> list[dict[str, Any]]:
-    person = ctx.person(debt)
+    """Agent-facing wrapper."""
+    return enumerate_options_for(ctx.world, ctx.person(debt), debt, ctx.as_of)
+
+
+def enumerate_options_for(
+    world: Any, person: Any, debt: CareDebt, as_of: date
+) -> list[dict[str, Any]]:
+    """Capability, stock and slot lookup, with no agent context required.
+
+    Split out so the trial simulation exercises this exact code rather than a
+    reimplementation of it.
+    """
     action, ladder = CONDITION_ACTION[debt.condition]
     required_services = ACTION_SERVICE[action]
     drug = CONDITION_DRUG.get(debt.condition)
     # Search up to the deadline, or 21 days out for already-breached debts
     # (a breached obligation still needs the soonest real option).
-    horizon = max(ctx.as_of + timedelta(days=21), debt.deadline_on)
+    horizon = max(as_of + timedelta(days=21), debt.deadline_on)
 
     options: list[dict[str, Any]] = []
 
     # 1. Outreach that comes to the village. Always checked first, because a
     #    zero-travel option changes the economics completely.
-    for window in ctx.world.windows_for(person.panchayat, ctx.as_of):
+    for window in world.windows_for(person.panchayat, as_of):
         if window.on_date > horizon:
             break
         if not _service_ok(window.services, required_services):
@@ -105,7 +116,7 @@ def enumerate_options(ctx: AgentContext, debt: CareDebt) -> list[dict[str, Any]]
                 "outreach_window_id": window.id,
                 "facility_id": None,
                 "on_date": window.on_date.isoformat(),
-                "days_until": (window.on_date - ctx.as_of).days,
+                "days_until": (window.on_date - as_of).days,
                 "within_deadline": window.on_date <= debt.deadline_on,
                 "service_ok": True,
                 "stock_ok": stock_ok,
@@ -116,16 +127,16 @@ def enumerate_options(ctx: AgentContext, debt: CareDebt) -> list[dict[str, Any]]
 
     # 2. Teleconsultation, where it is clinically sufficient.
     if action in TELECONSULT_SUFFICIENT and action not in TELECONSULT_NEVER:
-        tele = ctx.world.facilities.get("tele-00")
+        tele = world.facilities.get("tele-00")
         if tele is not None:
-            slot = _next_free_slot(tele.slots, ctx.as_of, horizon)
+            slot = _next_free_slot(tele.slots, as_of, horizon)
             if slot is not None:
                 # A refill still needs physical medicine from somewhere, so a
                 # teleconsult is only a complete answer when paired with a
                 # local dispensing point that has stock.
                 dispenser = None
                 if action == "refill_medication" and drug is not None:
-                    for facility in ctx.world.facilities_in(person.panchayat):
+                    for facility in world.facilities_in(person.panchayat):
                         if "dispense" in facility.services and not expected_stockout(
                             facility, drug
                         ):
@@ -146,7 +157,7 @@ def enumerate_options(ctx: AgentContext, debt: CareDebt) -> list[dict[str, Any]]
                             "paired_dispenser_id": dispenser.id if dispenser else None,
                             "outreach_window_id": None,
                             "on_date": slot.isoformat(),
-                            "days_until": (slot - ctx.as_of).days,
+                            "days_until": (slot - as_of).days,
                             "within_deadline": slot <= debt.deadline_on,
                             "service_ok": True,
                             "stock_ok": True,
@@ -159,7 +170,7 @@ def enumerate_options(ctx: AgentContext, debt: CareDebt) -> list[dict[str, Any]]
     for ftype in ladder:
         if ftype in {FacilityType.MOBILE_VAN, FacilityType.TELECONSULT}:
             continue
-        facility = ctx.world.assigned_facility(person, ftype)
+        facility = world.assigned_facility(person, ftype)
         if facility is None:
             continue
         if not facility.staff_present:
@@ -183,7 +194,7 @@ def enumerate_options(ctx: AgentContext, debt: CareDebt) -> list[dict[str, Any]]
             continue
         if not _service_ok(facility.services, required_services):
             continue
-        slot = _next_free_slot(facility.slots, ctx.as_of, horizon)
+        slot = _next_free_slot(facility.slots, as_of, horizon)
         stock_ok = drug is None or not expected_stockout(facility, drug)
         if slot is None:
             options.append(
@@ -212,7 +223,7 @@ def enumerate_options(ctx: AgentContext, debt: CareDebt) -> list[dict[str, Any]]
                 "facility_id": facility.id,
                 "outreach_window_id": None,
                 "on_date": slot.isoformat(),
-                "days_until": (slot - ctx.as_of).days,
+                "days_until": (slot - as_of).days,
                 "within_deadline": slot <= debt.deadline_on,
                 "service_ok": True,
                 "stock_ok": stock_ok,

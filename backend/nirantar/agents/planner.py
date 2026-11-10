@@ -53,6 +53,7 @@ from ..models import (
     CostBreakdown,
     DebtStatus,
     FacilityType,
+    Person,
     PlanStep,
 )
 from .base import AgentContext, timed
@@ -115,20 +116,18 @@ choice against those constraints and will overrule you, visibly, if it \
 violates them."""
 
 
-def script_language_for(person) -> str:
+def script_language_for(person: Person) -> str:
     """The language the outreach copy will actually be written in."""
     return person.language if language_is_supported(person) else "Hindi"
 
 
 def _features_for(
-    ctx: AgentContext,
-    debt: CareDebt,
+    person: Person,
     option: dict[str, Any],
     *,
     escort: bool,
     text_only: bool,
 ) -> tuple[CostBreakdown, AttendanceFeatures, float]:
-    person = ctx.person(debt)
     ftype = FacilityType(option["facility_type"])
     cost = estimate_cost(person, ftype)
     features = AttendanceFeatures(
@@ -178,13 +177,23 @@ def _score(
     }
 
 
-def shortlist(ctx: AgentContext, debt: CareDebt) -> list[dict[str, Any]]:
-    person = ctx.person(debt)
-    options: list[dict[str, Any]] = ctx.shared.get("viable_options", [])
-    asha = ctx.shared.get("asha")
-    asha_capacity = bool(ctx.shared.get("asha_has_capacity"))
-    channel = str(ctx.shared.get("preferred_channel", "ivr_call"))
-    text_only = bool(ctx.shared.get("preferred_channel_text_only", False))
+def build_candidates(
+    person: Person,
+    debt: CareDebt,
+    options: list[dict[str, Any]],
+    *,
+    asha: Any,
+    asha_capacity: bool,
+    channel: str,
+    text_only: bool,
+) -> list[dict[str, Any]]:
+    """Price and score every viable option. The optimiser proper.
+
+    Takes explicit arguments rather than reading the agent context, so the
+    trial simulation can drive this exact code path. A simulation that
+    reimplemented the scoring would be measuring a different system from the
+    one we ship, which would make its results worthless.
+    """
     drug = CONDITION_DRUG.get(debt.condition)
 
     candidates: list[dict[str, Any]] = []
@@ -204,7 +213,7 @@ def shortlist(ctx: AgentContext, debt: CareDebt) -> list[dict[str, Any]]:
                 escort_variants.append(True)
         for escort in escort_variants:
             cost, features, no_show = _features_for(
-                ctx, debt, option, escort=escort, text_only=text_only
+                person, option, escort=escort, text_only=text_only
             )
             total, parts = _score(debt, option, cost, no_show, escort=escort)
             label = option["label"] + (" with ASHA escort" if escort else "")
@@ -240,6 +249,19 @@ def shortlist(ctx: AgentContext, debt: CareDebt) -> list[dict[str, Any]]:
         if len(deduped) == 3:
             break
     return deduped
+
+
+def shortlist(ctx: AgentContext, debt: CareDebt) -> list[dict[str, Any]]:
+    """Agent-facing wrapper: reads what Supply and Reality put in the context."""
+    return build_candidates(
+        ctx.person(debt),
+        debt,
+        ctx.shared.get("viable_options", []),
+        asha=ctx.shared.get("asha"),
+        asha_capacity=bool(ctx.shared.get("asha_has_capacity")),
+        channel=str(ctx.shared.get("preferred_channel", "ivr_call")),
+        text_only=bool(ctx.shared.get("preferred_channel_text_only", False)),
+    )
 
 
 def _build_steps(

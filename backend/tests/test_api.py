@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 
 def test_all_aggregate_views_respond(client):
     for path in (
@@ -150,3 +152,75 @@ def test_ledger_entries_are_paginated_and_privacy_safe(client):
     for entry in body["entries"]:
         assert set(entry) >= {"seq", "entry_hash", "prev_hash", "signature"}
         assert "display_name" not in entry["payload"]
+
+
+# --- the frontline worker's view ------------------------------------------
+
+
+def test_asha_list_and_task_queue(client):
+    ashas = client.get("/api/asha").json()
+    assert ashas
+    first = ashas[0]
+    assert first["villages"]
+    assert first["obligations_in_her_villages"] >= 0
+
+    payload = client.get(f"/api/asha/{first['id']}/tasks").json()
+    assert payload["asha"]["id"] == first["id"]
+    assert payload["visits"]
+    for visit in payload["visits"]:
+        assert visit["obligations"]
+        for obligation in visit["obligations"]:
+            # One evidence type in plain words, not a machine list.
+            assert isinstance(obligation["closes_with_plain"], str)
+            assert obligation["closes_with_plain"]
+
+
+def test_asha_queue_groups_obligations_by_household(client):
+    """One household is one walk.
+
+    A health worker sent to the same courtyard twice in a week because two
+    abnormal results were filed separately will stop trusting the list.
+    """
+    ashas = client.get("/api/asha").json()
+    for asha in ashas[:8]:
+        payload = client.get(f"/api/asha/{asha['id']}/tasks?limit=40").json()
+        refs = [visit["ref"] for visit in payload["visits"]]
+        assert len(refs) == len(set(refs)), (
+            f"{asha['id']} was given the same household more than once"
+        )
+        # Names are not identifiers: two different people in one village can
+        # share one. Every visit must therefore carry a stable ref, or the
+        # field app would merge two households onto a single card.
+        assert all(visit["ref"] for visit in payload["visits"])
+
+
+def test_asha_queue_is_small_enough_for_a_2g_connection(client):
+    """The constraint that decides whether any of this works in the field."""
+    ashas = client.get("/api/asha").json()
+    payload = client.get(f"/api/asha/{ashas[0]['id']}/tasks").json()
+    transfer = payload["transfer"]
+    assert transfer["bytes"] > 0
+    # Measured as UTF-8 exactly as sent. Using json.dumps' default would
+    # escape Devanagari to \uXXXX and over-report by roughly double.
+    assert transfer["seconds_on_2g"] < 12, (
+        f"the queue takes {transfer['seconds_on_2g']}s on a 2G link, which is "
+        "too slow for a health worker standing in a courtyard"
+    )
+
+
+def test_asha_queue_does_not_ship_the_supervisor_gloss_to_the_field(client):
+    """The English gloss is for a supervisor reviewing outreach, not the door.
+
+    Shipping it would roughly double a payload on a metered connection for a
+    reader who is not present.
+    """
+    client.post("/api/simulate/batch", json={"limit": 200})
+    ashas = client.get("/api/asha").json()
+    payload = client.get(f"/api/asha/{ashas[0]['id']}/tasks").json()
+    blob = json.dumps(payload)
+    assert "english_gloss" not in blob
+    assert "say_gloss" not in blob
+
+
+def test_unknown_asha_is_a_404(client):
+    assert client.get("/api/asha/asha-nope/tasks").status_code == 404

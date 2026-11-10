@@ -15,11 +15,12 @@ with a small child, say) without ever being able to bury a critical case.
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 from .. import calibration as cal
 from ..llm import bounded_float, bounded_text, complete_json
-from ..models import CareDebt, DebtStatus
+from ..models import CareDebt, DebtStatus, Person
 from .base import AgentContext, timed
 
 AGENT = "Triage"
@@ -51,20 +52,30 @@ deciding: the system clamps your adjustment and keeps its own ordering for \
 anything critical."""
 
 
-def deterministic_score(ctx: AgentContext, debt: CareDebt) -> tuple[float, dict[str, Any]]:
-    person = ctx.person(debt)
-    severity = cal.SEVERITY_DALY_WEIGHT.get(debt.condition, 2.0)
+def urgency_multiplier(debt: CareDebt, as_of: date) -> float:
+    """Climbs as the deadline nears, and keeps climbing after it passes.
+
+    A breached obligation does not become less important with age, which is
+    precisely the mistake a simple due-date queue makes.
+    """
     deadline_days = cal.CLINICAL_DEADLINE_DAYS.get(debt.condition, 30)
-    remaining = debt.days_to_deadline(ctx.as_of)
-
-    # Urgency climbs as the deadline approaches and keeps climbing after it
-    # passes -- a breached obligation does not become less important, which
-    # is precisely the mistake a simple due-date queue makes.
+    remaining = (debt.deadline_on - as_of).days
     if remaining < 0:
-        urgency = 1.7 + min(1.0, abs(remaining) / (deadline_days * 3))
-    else:
-        urgency = 1.0 + 0.8 * (1.0 - min(1.0, remaining / max(1, deadline_days)))
+        return 1.7 + min(1.0, abs(remaining) / (deadline_days * 3))
+    return 1.0 + 0.8 * (1.0 - min(1.0, remaining / max(1, deadline_days)))
 
+
+def vulnerability_multiplier(person: Person) -> tuple[float, list[str]]:
+    """Up-weights people for whom a missed follow-up is hardest to recover from.
+
+    This is the system's equity mechanism, and it is deliberately a
+    multiplier on the ranking rather than a tie-breaker. Without it, an
+    objective that maximises expected benefit per unit of effort has a
+    standing incentive to work the easy cases: the near, the connected and
+    the literate are cheaper to reach and more likely to attend, so a purely
+    efficient queue quietly sorts the poorest to the bottom. The trial
+    simulation measures exactly that, with this weighting on and off.
+    """
     vulnerability = 1.0
     reasons: list[str] = []
     if person.is_pregnant:
@@ -79,9 +90,13 @@ def deterministic_score(ctx: AgentContext, debt: CareDebt) -> tuple[float, dict[
     if person.km_to_district > 30:
         vulnerability += 0.15
         reasons.append("remote village")
-    if person.daily_wage_inr and person.daily_wage_inr < 350:
+    # Note the absence of a truthiness guard on the wage: a person with no
+    # cash wage at all is not thereby un-poor. Treating zero as "no data"
+    # was an earlier bug that excluded homemakers and children from the
+    # equity weighting entirely -- the exact group it most needed to cover.
+    if person.daily_wage_inr < 350:
         vulnerability += 0.15
-        reasons.append("low daily wage")
+        reasons.append("low or no cash wage")
     if person.phone_type.value == "none":
         vulnerability += 0.12
         reasons.append("no phone")
@@ -91,6 +106,33 @@ def deterministic_score(ctx: AgentContext, debt: CareDebt) -> tuple[float, dict[
     if len(person.comorbidities) >= 2:
         vulnerability += 0.15
         reasons.append("multiple conditions")
+    return vulnerability, reasons
+
+
+def rank_score(
+    debt: CareDebt, person: Person, as_of: date, *, equity_weighted: bool = True
+) -> float:
+    """The ordering used to decide who the block works on next.
+
+    Shared by the live worklist and the trial simulation so the two cannot
+    drift apart. They did drift once: the displayed risk score included the
+    vulnerability multiplier while the queue order did not, so the interface
+    claimed an equity weighting the system was not actually applying.
+    """
+    severity = cal.SEVERITY_DALY_WEIGHT.get(debt.condition, 2.0)
+    score = severity * urgency_multiplier(debt, as_of)
+    if equity_weighted:
+        score *= vulnerability_multiplier(person)[0]
+    return score
+
+
+def deterministic_score(ctx: AgentContext, debt: CareDebt) -> tuple[float, dict[str, Any]]:
+    person = ctx.person(debt)
+    severity = cal.SEVERITY_DALY_WEIGHT.get(debt.condition, 2.0)
+    deadline_days = cal.CLINICAL_DEADLINE_DAYS.get(debt.condition, 30)
+    remaining = debt.days_to_deadline(ctx.as_of)
+    urgency = urgency_multiplier(debt, ctx.as_of)
+    vulnerability, reasons = vulnerability_multiplier(person)
 
     raw = severity * urgency * vulnerability
     # Normalise onto 0-100 against the worst realistic case.

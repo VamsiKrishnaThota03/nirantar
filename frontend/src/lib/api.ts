@@ -168,6 +168,7 @@ export type CarePlan = {
     outreach_blocked: boolean;
     voice_script: {
       language: string;
+      language_code: string;
       script: string;
       english_gloss: string;
       estimated_duration_seconds: number;
@@ -277,6 +278,173 @@ export type CalibrationPayload = {
   severity_weights_healthy_years: Record<string, number>;
 };
 
+export type EquityStratum = {
+  stratum: string;
+  n: number;
+  mean_value: number;
+  served: number;
+  served_rate: number;
+};
+
+export type EquityReport = {
+  people_owed_care: number;
+  people_contacted: number;
+  people_served: number;
+  overall_served_rate: number;
+  denominator: string;
+  by_distance: EquityStratum[];
+  by_wage: EquityStratum[];
+  nearest_over_furthest_ratio: number | null;
+  richest_over_poorest_ratio: number | null;
+  by_attribute: {
+    attribute: string;
+    with_n: number;
+    with_served_rate: number;
+    without_n: number;
+    without_served_rate: number;
+  }[];
+  female_served_rate: number;
+  male_served_rate: number;
+};
+
+export type ArmSummary = {
+  arm: string;
+  obligations_closed: number;
+  still_open: number;
+  past_deadline: number;
+  given_up_unreachable: number;
+  healthy_years_discharged: number;
+  patient_rupees_spent: number;
+  patient_travel_km: number;
+  contacts_made: number;
+  attendances: number;
+  attendance_rate: number;
+  rupees_per_closure: number;
+};
+
+export type BurnDownPoint = {
+  day: number;
+  on_date: string;
+  open: number;
+  closed_cumulative: number;
+  healthy_years_discharged: number;
+  unreachable: number;
+};
+
+export type Spread = { min: number; median: number; max: number; mean: number };
+
+export type TrialReport = {
+  elapsed_seconds: number;
+  design: {
+    days: number;
+    trials: number;
+    population: number;
+    seed: number;
+    perturbation_scale: number;
+    daily_contact_share: number;
+    max_attempts: number;
+    note: string;
+    not_a_claim_of_real_impact: string;
+  };
+  trials: {
+    trial: number;
+    truth_coefficients: Record<string, number>;
+    status_quo: ArmSummary;
+    nirantar: ArmSummary;
+    extra_closures: number;
+    closure_multiple: number;
+    extra_healthy_years: number;
+    rupees_per_closure_status_quo: number;
+    rupees_per_closure_nirantar: number;
+  }[];
+  aggregate: {
+    closure_multiple: Spread;
+    extra_closures: Spread;
+    extra_healthy_years: Spread;
+    cost_per_closure_ratio: Spread;
+    nirantar_better_in_all_trials: boolean;
+  };
+  burn_down: { status_quo: BurnDownPoint[]; nirantar: BurnDownPoint[] };
+  calibration: {
+    nirantar: {
+      bucket: string;
+      n: number;
+      predicted_no_show: number;
+      realised_no_show: number;
+      error: number;
+    }[];
+    brier_nirantar: number;
+    brier_status_quo: number;
+    note: string;
+  };
+  equity: {
+    status_quo: EquityReport;
+    nirantar: EquityReport;
+    nirantar_without_equity_weighting: EquityReport;
+    ablation: {
+      trial: number;
+      with_equity_weighting: Record<string, number>;
+      without_equity_weighting: Record<string, number>;
+    }[];
+    note: string;
+    what_we_found: string;
+  };
+};
+
+export type AshaRow = {
+  id: string;
+  display_name: string;
+  panchayat: string;
+  villages: string[];
+  languages: string[];
+  open_tasks: number;
+  weekly_visit_capacity: number;
+  obligations_in_her_villages: number;
+};
+
+export type AshaObligation = {
+  debt_id: string;
+  why: string;
+  days_to_deadline: number;
+  closes_with: string;
+  closes_with_plain: string;
+  plan: {
+    what: string;
+    when: string | null;
+    accompany: boolean;
+    bring: string[];
+    say: string | null;
+  } | null;
+};
+
+/** One household, one walk. Several obligations may sit behind one visit. */
+export type AshaVisit = {
+  /** Stable identifier: display names are not unique. */
+  ref: string;
+  who: string;
+  age: number;
+  sex: string;
+  village: string;
+  language: string;
+  phone: string;
+  urgent: boolean;
+  obligations: AshaObligation[];
+};
+
+export type AshaTaskPayload = {
+  asha: { id: string; display_name: string; panchayat: string; villages: string[] };
+  as_of: string;
+  visits: AshaVisit[];
+  transfer: {
+    bytes: number;
+    visits: number;
+    obligations: number;
+    bytes_per_visit: number;
+    seconds_on_2g: number;
+    note: string;
+  };
+};
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -361,6 +529,13 @@ export const api = {
       `/api/ledger/entries?limit=${limit}&offset=${offset}`,
     ),
   ledgerVerify: () => request<LedgerVerify>("/api/ledger/verify"),
+  trial: (body: { days: number; trials: number; perturbation?: number }) =>
+    request<TrialReport>("/api/trial", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  ashas: () => request<AshaRow[]>("/api/asha"),
+  ashaTasks: (id: string) => request<AshaTaskPayload>(`/api/asha/${id}/tasks`),
   llmUsage: () =>
     request<{
       enabled: boolean;

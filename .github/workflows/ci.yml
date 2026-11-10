@@ -107,6 +107,24 @@ jobs:
           curl -sf http://127.0.0.1:8000/api/ledger/verify \
             | python -c "import json,sys; r=json.load(sys.stdin); assert r['valid'], r['problems']; print('chain valid,', r['entries'], 'entries')"
 
+          echo "--- the controlled trial must run and stay out of the ledger ---"
+          entries_before=$(curl -sf http://127.0.0.1:8000/api/ledger/summary | python -c "import json,sys; print(json.load(sys.stdin)['ledger_entries'])")
+          curl -sf -X POST http://127.0.0.1:8000/api/trial \
+            -H 'Content-Type: application/json' \
+            -d '{"days":30,"trials":1}' \
+            | python -c "import json,sys; r=json.load(sys.stdin); m=r['aggregate']['closure_multiple']['median']; assert m>1.0, f'optimiser did not beat the due-date queue: {m}'; print('closure multiple', m)"
+          entries_after=$(curl -sf http://127.0.0.1:8000/api/ledger/summary | python -c "import json,sys; print(json.load(sys.stdin)['ledger_entries'])")
+          if [ "$entries_before" != "$entries_after" ]; then
+            echo "::error::The trial wrote to the Impact Ledger. Simulated outcomes must never enter the signed record."
+            exit 1
+          fi
+          echo "trial did not touch the ledger ($entries_before entries before and after)"
+
+          echo "--- the field queue must fit a 2G link ---"
+          asha=$(curl -sf http://127.0.0.1:8000/api/asha | python -c "import json,sys; print(json.load(sys.stdin)[0]['id'])")
+          curl -sf "http://127.0.0.1:8000/api/asha/$asha/tasks" \
+            | python -c "import json,sys; t=json.load(sys.stdin)['transfer']; assert t['seconds_on_2g']<12, t; print('field queue', t['bytes'], 'bytes,', t['seconds_on_2g'], 's on 2G')"
+
           echo "--- operator routes must stay closed ---"
           code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/api/operator/whoami)
           if [ "$code" = "200" ]; then

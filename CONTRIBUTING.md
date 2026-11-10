@@ -63,11 +63,22 @@ declined with an explanation.
 7. **Every constant carries its provenance.** A real source, or an explained
    assumption. There is a test for this.
 
+8. **The trial must stay able to fail.** Do not draw simulated outcomes from
+   the planner's own predictions, do not give the Nirantar arm a larger effort
+   budget, and do not weaken the status-quo arm. A simulation that flatters
+   its own system is worse than no simulation: it launders an assumption into
+   something that looks like evidence. Trials must never write to the Impact
+   Ledger.
+
+9. **Publish the equity audit even when it is unflattering.** The wage gap is
+   currently not closed, and that is stated plainly in the README. If a change
+   improves one gap and worsens another, say so.
+
 ## Working on it
 
 ```bash
 make setup
-make test        # 70 backend tests + frontend typecheck
+make test        # 89 backend tests + frontend typecheck
 make build
 make backend
 ```

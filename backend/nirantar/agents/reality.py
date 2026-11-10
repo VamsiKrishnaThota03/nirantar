@@ -78,6 +78,13 @@ def _next_free_slot(slots: dict[str, int], not_before: date) -> tuple[date | Non
 
 
 def conventional_referral(ctx: AgentContext, debt: CareDebt) -> dict[str, Any]:
+    """Agent-facing wrapper."""
+    return conventional_referral_for(ctx.world, ctx.person(debt), debt, ctx.as_of)
+
+
+def conventional_referral_for(
+    world: Any, person: Any, debt: CareDebt, as_of: date
+) -> dict[str, Any]:
     """Reconstruct the referral a normal programme would issue.
 
     Deliberately not a straw man. It is what a correctly operating referral
@@ -86,18 +93,17 @@ def conventional_referral(ctx: AgentContext, debt: CareDebt) -> dict[str, Any]:
     and notify them by text. Every one of those three choices is defensible
     in isolation and together they produce a no-show.
     """
-    person = ctx.person(debt)
     _action, ladder = CONDITION_ACTION[debt.condition]
     # Conventional referral goes to the top of the ladder: safest clinically,
     # most expensive for the patient, and nobody has ever measured the
     # trade-off.
     target_type = ladder[-1]
-    facility = ctx.world.assigned_facility(person, target_type)
+    facility = world.assigned_facility(person, target_type)
     if facility is None:
-        facility = ctx.world.facilities["dh-00"]
+        facility = world.facilities["dh-00"]
         target_type = FacilityType.DISTRICT
 
-    slot_date, days_until = _next_free_slot(facility.slots, ctx.as_of)
+    slot_date, days_until = _next_free_slot(facility.slots, as_of)
     if slot_date is None:
         # No slot inside the horizon: the patient is told to "come and wait".
         days_until = 28

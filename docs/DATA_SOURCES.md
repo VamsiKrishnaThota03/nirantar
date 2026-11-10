@@ -116,3 +116,25 @@ has to make; they are not good enough for a cost-effectiveness submission.
 
 **SQLite and an in-process rate limiter** suit one block, not a state. Both
 are called out in [`../SECURITY.md`](../SECURITY.md) with their replacements.
+
+**The trial is a simulation, not a field trial.** It is built to be able to
+fail — outcomes are drawn from a ground truth deliberately perturbed away from
+the planner's beliefs, the status-quo arm's plausibility is asserted by a
+test, and the results are reported as a distribution across worlds. All of
+that makes it a *stronger* piece of evidence than a single run of our own
+model against itself. It is still not evidence about any real block. The
+honest reading is: "optimising against an imperfect behavioural model helped
+in every simulated world we tried, including ones where the model was
+materially wrong." Not: "this saves ₹X in Bharatpur."
+
+**The trial's ground-truth model shares the planner's functional form.** Only
+the coefficients differ. We are not claiming to know a better *shape* for
+human attendance behaviour, and if the true shape is different — a threshold
+effect rather than a smooth logistic, say — the trial would not detect it.
+That is a real limitation of this design and the most likely way these results
+are optimistic.
+
+**The equity audit measures service rates, not health outcomes.** "Served"
+means an obligation was discharged with evidence. It does not measure whether
+the care was good, or whether the person's blood pressure actually came
+down.

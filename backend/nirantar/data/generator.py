@@ -216,6 +216,7 @@ class World:
         # Adults who went through population-based screening at least once.
         # The cascade denominator.
         self.people_screened: int = 0
+        self.horizon_days: int = 28
 
     # --- indexes -----------------------------------------------------------
 
@@ -279,10 +280,24 @@ def _weighted(rng: random.Random, pairs: list[tuple[str, float]]) -> str:
     return pairs[-1][0]
 
 
-def build_world(seed: int = 20260815, population: int = 24000, as_of: date | None = None) -> World:
+def build_world(
+    seed: int = 20260815,
+    population: int = 24000,
+    as_of: date | None = None,
+    horizon_days: int = 28,
+) -> World:
+    """Generate the block.
+
+    ``horizon_days`` is how far forward appointment slots and mobile-unit
+    routes are laid out. The dashboard needs four weeks; a 90-day trial
+    simulation needs the whole trial, otherwise the planner runs out of
+    capacity to route into and the comparison measures the horizon rather
+    than the system.
+    """
     rng = random.Random(seed)
     world = World()
     world.seed = seed
+    world.horizon_days = horizon_days
     world.as_of = as_of or date.today()
     today = world.as_of
 
@@ -309,7 +324,7 @@ def build_world(seed: int = 20260815, population: int = 24000, as_of: date | Non
             },
             slots={
                 (today + timedelta(days=d)).isoformat(): rng.randint(4, 14)
-                for d in range(0, 28)
+                for d in range(0, horizon_days)
             },
             staff_present=rng.random() > 0.08,
         )
@@ -328,7 +343,7 @@ def build_world(seed: int = 20260815, population: int = 24000, as_of: date | Non
             stock={drug: rng.choice([0, 6, 25, 80, 150]) for drug in DRUGS},
             slots={
                 (today + timedelta(days=d)).isoformat(): rng.randint(0, 9)
-                for d in range(0, 28)
+                for d in range(0, horizon_days)
             },
         )
 
@@ -344,7 +359,7 @@ def build_world(seed: int = 20260815, population: int = 24000, as_of: date | Non
         stock={drug: rng.choice([20, 90, 200, 400]) for drug in DRUGS},
         slots={
             (today + timedelta(days=d)).isoformat(): rng.randint(0, 6)
-            for d in range(0, 28)
+            for d in range(0, horizon_days)
         },
     )
     world.facilities["dh-00"] = Facility(
@@ -360,7 +375,7 @@ def build_world(seed: int = 20260815, population: int = 24000, as_of: date | Non
         # The district hospital is the bottleneck everyone is referred into.
         slots={
             (today + timedelta(days=d)).isoformat(): rng.randint(0, 3)
-            for d in range(0, 28)
+            for d in range(0, horizon_days)
         },
     )
     world.facilities["tele-00"] = Facility(
@@ -372,7 +387,7 @@ def build_world(seed: int = 20260815, population: int = 24000, as_of: date | Non
         stock={},
         slots={
             (today + timedelta(days=d)).isoformat(): rng.randint(8, 22)
-            for d in range(0, 28)
+            for d in range(0, horizon_days)
         },
     )
 
@@ -388,7 +403,7 @@ def build_world(seed: int = 20260815, population: int = 24000, as_of: date | Non
         for name, km in PANCHAYATS
         if name not in {"Mahuadanr", "Haripur", "Kusmahi"}
     ]
-    for day_offset in range(0, 28):
+    for day_offset in range(0, horizon_days):
         on_date = today + timedelta(days=day_offset)
         if on_date.weekday() == 6:
             continue

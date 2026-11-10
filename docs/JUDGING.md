@@ -74,10 +74,16 @@ displayed rather than hidden.
 **It runs where the billion actually is.** Voice-first in the patient's own
 language because a quarter of adults in the modelled block cannot read an SMS;
 a human at the door for households with no handset; scripts that never name
-the diagnosis because handsets are shared; ASHA task cards sized for a feature
-phone.
+the diagnosis because handsets are shared.
 
-**Engineering quality.** 70 tests, mostly adversarial. The suite asserts a
+And there is an actual **field app** for the ASHA, not just a district
+dashboard: offline-first with a local evidence queue and a service-worked app
+shell, obligations grouped so one household is one walk, the evidence bar
+visible before she sets off, her weekly capacity ceiling respected by the
+planner, and ~1.6 KB per household — about 3.8 s for a full queue on a
+40 kbit/s 2G link.
+
+**Engineering quality.** 89 tests, mostly adversarial. The suite asserts a
 mobile van can never initiate TB treatment, a refill is never sent to an empty
 shelf, a patient with no phone is never promised a WhatsApp message, wrong-typed
 and backdated evidence cannot close an obligation, tampering with or forging a
@@ -118,6 +124,60 @@ against the published public key. You do not have to trust us.
 
 > Endpoints: `/api/ledger/verify`, `/api/ledger/entries`,
 > `/api/ledger/public-key`, `/api/ledger/summary`
+
+### A controlled trial, not just predictions
+
+The ledger records what the system did. The trial asks whether the system is
+any good — and is built so it cannot flatter itself.
+
+Both arms get the same population, the same daily contact budget and the same
+random draws. They differ only in who they contact first and what they offer.
+Crucially, **outcomes are drawn from a ground-truth attendance model whose
+coefficients are perturbed away from the ones the planner believes** (±35%
+log-normal, re-drawn per trial). The planner is never graded against its own
+assumptions, so the question becomes the honest one: does optimising against
+an imperfect model of behaviour still help in a world that behaves
+differently?
+
+Across three independently perturbed worlds, 90 simulated days:
+
+| Measure | Status quo | Nirantar |
+|---|---|---|
+| Obligations closed | 739 – 1,340 | 2,050 – 2,148 |
+| Attendance per contact | 17 – 34% | 78 – 92% |
+| Household cost per closure | ₹381 – ₹411 | ₹72 – ₹85 |
+| People abandoned as unreachable | 1,255 | 541 |
+
+Median **1.7× more closures at 21% of the household cost per closure**, ahead
+in every world. And the predictions are scored, not asserted: a reliability
+diagram and Brier score (0.075 Nirantar vs 0.196 status quo) show exactly how
+wrong the no-show model was.
+
+> Endpoint: `POST /api/trial` · dashboard: **The trial**
+
+### Equity, audited and published
+
+An efficiency objective has a standing incentive to work the easy cases. So
+the trial audits service rates over **everyone owed care**, by distance and
+wage quintile, and publishes the result including the part that does not
+flatter us:
+
+| Gap | Status quo | Nirantar |
+|---|---|---|
+| Nearest ÷ furthest | 1.18 | **0.95 — closed** |
+| Richest ÷ poorest | 1.42 | **1.40 — essentially unchanged** |
+
+Village routing closes the distance gap outright. The wage gap it does not
+close: an ablation shows the vulnerability weighting narrows it from 1.69 to
+1.40 at a cost of ~6% of total closures — a genuine efficiency–equity
+trade-off, presented as one. The residual belongs to households with no cash
+income and to specialist-dependent conditions no village-level option can
+serve, which is a capacity decision rather than a routing one.
+
+Finding this required fixing a real inconsistency: the interface displayed a
+risk score that included a vulnerability multiplier while the queue order
+ignored it, so the system was claiming an equity weighting it was not
+applying. That is now one shared ranking function with a measured ablation.
 
 ### What we can honestly claim today
 

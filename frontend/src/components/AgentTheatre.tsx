@@ -29,6 +29,50 @@ import { Card, DataTable, ErrorNote, Legend, Loading } from "./primitives";
 
 const AGENTS = ["Triage", "Reality", "Supply", "Planner", "Verifier"] as const;
 
+/** Speaks a script with the browser's own speech synthesis.
+ *
+ * Not the production voice path — a real deployment hands the script to a
+ * telephony provider with a trained Indic voice. This exists so the script
+ * can be *heard* rather than only read, because "voice-first for people who
+ * cannot read an SMS" is the central design claim and a wall of Devanagari
+ * on a dashboard does not demonstrate it.
+ */
+function useSpeech() {
+  const [speaking, setSpeaking] = useState(false);
+  const supported =
+    typeof window !== "undefined" && "speechSynthesis" in window;
+
+  const stop = useCallback(() => {
+    if (!supported) return;
+    window.speechSynthesis.cancel();
+    setSpeaking(false);
+  }, [supported]);
+
+  const speak = useCallback(
+    (text: string, langCode: string) => {
+      if (!supported) return;
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      // Indic voices are usually registered under hi-IN; Bhojpuri, Awadhi
+      // and Maithili have no system voice, so Hindi is the closest available
+      // rendering and we say so in the interface rather than implying the
+      // dialect is supported.
+      utterance.lang = langCode === "bho" ? "hi-IN" : "hi-IN";
+      // Slower than default: this is health information for someone who may
+      // be hearing it over a poor line.
+      utterance.rate = 0.85;
+      utterance.onend = () => setSpeaking(false);
+      utterance.onerror = () => setSpeaking(false);
+      setSpeaking(true);
+      window.speechSynthesis.speak(utterance);
+    },
+    [supported],
+  );
+
+  useEffect(() => stop, [stop]);
+  return { speak, stop, speaking, supported };
+}
+
 const AGENT_BLURB: Record<string, string> = {
   Triage: "ranks by expected harm",
   Reality: "prices the barriers",
@@ -52,6 +96,7 @@ export function AgentTheatre({ onLedgerChange }: { onLedgerChange: () => void })
   const [runError, setRunError] = useState<string | null>(null);
   const [closed, setClosed] = useState<string | null>(null);
   const abort = useRef<AbortController | null>(null);
+  const speech = useSpeech();
 
   const load = useCallback(async () => {
     try {
@@ -578,6 +623,21 @@ export function AgentTheatre({ onLedgerChange }: { onLedgerChange: () => void })
                 {plan.artifacts.voice_script.english_gloss}
               </div>
               <div className="row" style={{ marginTop: 12 }}>
+                {speech.supported && (
+                  <button
+                    className="btn secondary"
+                    onClick={() =>
+                      speech.speaking
+                        ? speech.stop()
+                        : speech.speak(
+                            plan.artifacts.voice_script.script,
+                            plan.artifacts.voice_script.language_code,
+                          )
+                    }
+                  >
+                    {speech.speaking ? "■ Stop" : "▶ Hear it"}
+                  </button>
+                )}
                 {plan.artifacts.channel !== "asha_visit" && (
                   <>
                     <span className="pill">
@@ -605,6 +665,15 @@ export function AgentTheatre({ onLedgerChange }: { onLedgerChange: () => void })
               <p className="note">
                 {plan.artifacts.voice_script.privacy_note}
               </p>
+              {speech.supported && (
+                <p className="note">
+                  "Hear it" uses your browser's own speech synthesis, so the
+                  pronunciation is whatever Hindi voice your device ships. A
+                  real deployment hands this script to a telephony provider
+                  with a trained Indic voice; this is here so the script can be
+                  heard rather than only read.
+                </p>
+              )}
             </Card>
 
             <Card

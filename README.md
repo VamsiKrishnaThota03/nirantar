@@ -11,7 +11,7 @@ Track: **Health**.
 [![CI](https://github.com/VamsiKrishnaThota03/nirantar/actions/workflows/ci.yml/badge.svg)](https://github.com/VamsiKrishnaThota03/nirantar/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 ![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)
-![Tests](https://img.shields.io/badge/tests-70%20passing-brightgreen.svg)
+![Tests](https://img.shields.io/badge/tests-89%20passing-brightgreen.svg)
 
 ![The gap: 2,727 of 24,000 people in the modelled block are owed care right now](docs/screenshots/01-the-gap-light.png)
 
@@ -149,6 +149,109 @@ Four properties worth noting:
 
 ---
 
+## Does it actually work? A controlled trial
+
+The Impact Ledger records what the system *did*. But everything above is
+still our model talking about itself, and a reader is entitled to ask whether
+the model is worth anything. So the block is run forward ninety days under two
+arms — same population, same daily effort budget, same random luck:
+
+* **Status quo** — the backlog worked oldest-first, each patient given a
+  conventional referral to the highest-capability facility on its next free
+  slot, notified by SMS.
+* **Nirantar** — same effort, but ranked by expected harm and routed by the
+  optimiser.
+
+**The circularity problem, and how it is handled.** The obvious way to build
+this would be to draw each patient's attendance from the planner's own
+predicted no-show. That is worthless — the planner would be graded against
+its own beliefs and "Nirantar wins" would be arithmetic, not a finding.
+Instead each trial invents a **different ground truth** by perturbing the
+published coefficients log-normally (±35%), and the planner never sees it. The
+question the trial answers is the honest one:
+
+> Does optimising against an *imperfect* model of human behaviour still help,
+> in a world whose real behaviour differs from the model?
+
+Across three independently perturbed worlds, 90 days each:
+
+| | Status quo | Nirantar |
+|---|---|---|
+| Obligations closed | 739 – 1,340 | 2,050 – 2,148 |
+| Attendance per contact | 17 – 34% | 78 – 92% |
+| Cost per closure, to the household | ₹381 – ₹411 | ₹72 – ₹85 |
+| People given up on as unreachable | 1,255 | 541 |
+
+Median **1.7× more obligations closed** at **21% of the household cost per
+closure**, and Nirantar came out ahead in every world. The code also publishes
+a **reliability diagram and Brier score** — predicted no-show against what the
+ground truth actually did — so you can see how wrong the predictions were
+rather than taking them on trust.
+
+![The controlled trial: burn-down, calibration and the equity audit](docs/screenshots/06-the-trial.png)
+
+Run it yourself: the **The trial** tab, or `POST /api/trial`. It takes about
+two seconds per trial, and it is deliberately **not** written to the Impact
+Ledger: simulated outcomes must never be mixed into the signed record of real
+closures.
+
+## Who gets left behind?
+
+An objective that maximises benefit per unit of effort has a standing
+incentive to work the easy cases — the near, the connected and the literate
+are cheaper to reach and likelier to attend. A system like this has to be
+audited for exactly that, so the audit ships with it and is published whether
+or not it flatters us.
+
+Service rate over **everyone owed care** (not merely those contacted):
+
+| Gap | Status quo | Nirantar |
+|---|---|---|
+| Nearest ÷ furthest quintile | **1.18** | **0.95** — closed |
+| Richest ÷ poorest quintile | **1.42** | **1.40** — essentially unchanged |
+
+**What we found, including the part we did not want to find.** Routing care
+into the village closes the *distance* gap outright: the furthest quintile
+ends up served as often as the nearest, because the mobile unit removes the
+journey. The *wage* gap is harder. A vulnerability multiplier in the ranking
+narrows it measurably — 1.69 → 1.40 in the ablation — at a cost of about 6% of
+total closures, which is a real efficiency–equity trade-off and is presented
+as one rather than as a free win. It does not close it. The residual sits with
+two groups the optimiser cannot route around: households with no cash income,
+whose time this model prices at a substituted household wage, and people whose
+condition needs a specialist, for whom no village-level option exists at any
+price. **The second is a capacity decision, not a routing one** — which is
+exactly what the escalation briefs put in front of a Block Medical Officer.
+
+That ablation is a single documented flag with its cost measured, because
+which side of that trade-off a programme should sit on is a decision for the
+programme, not for this software.
+
+## The field app
+
+A district dashboard is for someone with a laptop and a desk. The ASHA has
+neither: she covers about a thousand people, is paid per completed task, and
+is reading this on a sub-₹8,000 handset over a connection that drops. So the
+**Field app** tab plays by different rules.
+
+* **Offline first.** Her queue is cached on the handset and evidence is queued
+  in local storage when there is no signal, then flushed when one returns. A
+  service worker caches the app shell so the page opens with no connection at
+  all. An app that needs a network to record a completed visit does not get
+  used.
+* **One household is one walk.** Obligations are grouped by person, so she is
+  never sent to the same courtyard twice in a week because two abnormal
+  results were filed separately.
+* **The evidence bar is on the card**, before she sets off — she can see that
+  "patient counselled" will not close it and a dispensing record will.
+* **Her capacity ceiling is real.** The planner stops assigning her escorts
+  once she hits it, because an ASHA is not an infinite resource.
+* **~1.6 KB per household**, about 3.8 s for a full queue on a 40 kbit/s 2G
+  link, measured as UTF-8 exactly as sent. The supervisor-facing English gloss
+  is deliberately not shipped to the field.
+
+![The ASHA field app: one household per card, offline queue, evidence bar on the card](docs/screenshots/07-field-app.png)
+
 ## Running it
 
 Needs Python 3.12+ and Node 18+.
@@ -193,7 +296,7 @@ officer.
 ### Tests
 
 ```bash
-cd backend && ./.venv/bin/python -m pytest tests -q     # 70 passed
+cd backend && ./.venv/bin/python -m pytest tests -q     # 89 passed
 cd frontend && npm run build                            # typecheck + build
 ```
 
@@ -204,6 +307,15 @@ and wrong-typed evidence cannot close an obligation, that editing or forging a
 ledger row breaks verification, that concurrent writers cannot fork the hash
 chain, and that **the process refuses to start** if configured for real
 records without an identity provider.
+
+The trial has its own tests, because a simulation that flatters its own system
+is worse than no simulation — it launders an assumption into something that
+looks like evidence. So the suite checks that the ground-truth coefficients
+really are perturbed away from the planner's, that both arms get the same
+effort budget, that **the status-quo arm is not a straw man** (its attendance
+rate must land in a defensible band), that capacity still binds, that a trial
+never writes to the ledger or mutates the live world, and that the equity
+weighting measurably changes who gets served.
 
 Two tests exist purely to keep the project honest:
 `test_ncd_follow_up_is_far_worse_than_tb` fails the build if the simulated
@@ -272,12 +384,14 @@ backend/nirantar/
   calibration.py    published constants, each with its source
   behaviour.py      what a visit costs, and who therefore does not attend
   models.py         the domain model, FHIR-shaped
+  simulation.py     the controlled trial, equity audit and calibration
   ledger.py         hash-chained Ed25519 impact ledger
   security.py       the gate
   agents/           triage · reality · supply · planner · verifier · escalation
   ivr/              outreach copy, Devanagari, with English glosses
   data/generator.py the calibrated synthetic block
-frontend/src/       dashboard, agent theatre, ledger audit, method & sources
+frontend/src/       dashboard, agent theatre, trial, field app, ledger audit
+frontend/public/    service worker (app shell only; never caches /api)
 docs/               architecture · judging · data sources · deploy · demo script
 ```
 

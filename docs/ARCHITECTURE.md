@@ -128,6 +128,58 @@ These are deliberate design features, not incidental:
   not a category anywhere in this codebase. If someone cannot attend, the
   plan was wrong.
 
+## The trial, and why it is built to be able to fail
+
+`simulation.py` runs the block forward under two arms. The design decision
+that matters is the **separation of the planner's model from the world's
+model**: outcomes are drawn from a `TruthModel` whose coefficients are
+perturbed log-normally away from the published assumptions and re-drawn per
+trial, and the planner never sees them.
+
+Without that separation the simulation would draw attendance from the
+planner's own prediction, and "Nirantar performs better" would be true by
+construction. With it, the trial can genuinely come out the other way, and
+`compare()` reports the distribution across worlds rather than a single run.
+
+Three further properties keep it honest, each with a test:
+
+* **Equal effort.** Both arms contact the same share of their open backlog per
+  day. The comparison is about targeting and logistics, not budget.
+* **The status-quo arm is not a straw man.** Its attendance rate is asserted
+  to land inside a band consistent with published referral-completion
+  figures. If it ever collapsed to near zero, the build fails rather than the
+  headline improving.
+* **Nothing is written to the Impact Ledger.** Simulated outcomes and real
+  closures are kept in separate universes, which is the only reason the
+  ledger means anything.
+
+The trial calls the real optimiser. `build_candidates`, `enumerate_options_for`
+and `conventional_referral_for` are the same functions the live agents use,
+extracted to take explicit arguments rather than an agent context. A
+simulation that reimplemented the scoring would be measuring a different
+system from the one we ship.
+
+## The equity mechanism
+
+`vulnerability_multiplier` up-weights the ranking for people whose missed
+follow-up is hardest to recover from — pregnancy, under-fives, remoteness, low
+or no cash wage, no phone, illiteracy. It is a multiplier on the queue order,
+not a tie-breaker, and it exists because the objective function above would
+otherwise quietly sort the poorest to the bottom: they cost more to reach and
+are less likely to attend, so expected benefit per unit of effort is lower for
+them by construction.
+
+`rank_score` is shared by the live worklist and the trial so the two cannot
+drift apart. They did drift once — the displayed risk score included the
+vulnerability multiplier while `worklist()` computed severity × urgency only,
+so the interface advertised an equity weighting the system was not applying.
+There is now one function and an ablation that measures what it buys.
+
+The ablation is the honest part. Turning the weighting on closes **fewer**
+obligations in total and distributes them more evenly. That is a real
+trade-off, reported as one, and left as a documented flag because which side
+of it to sit on is a programme's decision rather than a library's.
+
 ## Scale
 
 Capacity is shared mutable state — one patient booking the Thursday van slot

@@ -70,20 +70,20 @@ async function main() {
       }, theme);
     };
 
-    console.log("1/6  district view (light)");
+    console.log("1/8  district view (light)");
     await page.goto(`${BASE}/#district`, { waitUntil: "networkidle2" });
     await setTheme("light");
     await page.reload({ waitUntil: "networkidle2" });
     await sleep(900);
     await shot("01-the-gap-light");
 
-    console.log("2/6  district view (dark)");
+    console.log("2/8  district view (dark)");
     await setTheme("dark");
     await page.reload({ waitUntil: "networkidle2" });
     await sleep(900);
     await shot("02-the-gap-dark");
 
-    console.log("3/6  agent run and resulting plan");
+    console.log("3/8  agent run and resulting plan");
     await setTheme("light");
     await page.goto(`${BASE}/#agents`, { waitUntil: "networkidle2" });
     await sleep(800);
@@ -109,7 +109,7 @@ async function main() {
     await sleep(700);
     await shot("03-agent-plan");
 
-    console.log("4/6  closing with evidence");
+    console.log("4/8  closing with evidence");
     const closed = await page.evaluate(() => {
       const button = [...document.querySelectorAll("button")].find((element) =>
         element.textContent?.includes("Record evidence"),
@@ -125,7 +125,7 @@ async function main() {
       console.log("  (no close button; skipping)");
     }
 
-    console.log("5/6  impact ledger, after planning a batch");
+    console.log("5/8  impact ledger, after planning a batch");
     await page.goto(`${BASE}/#ledger`, { waitUntil: "networkidle2" });
     await sleep(700);
     await page.evaluate(() => {
@@ -141,10 +141,35 @@ async function main() {
     await sleep(1200);
     await shot("05-impact-ledger");
 
-    console.log("6/6  method and sources");
+    console.log("6/8  the controlled trial");
+    await page.goto(`${BASE}/#trial`, { waitUntil: "networkidle2" });
+    await sleep(800);
+    await page.evaluate(() => {
+      const button = [...document.querySelectorAll("button")].find((element) =>
+        element.textContent?.includes("Run the trial"),
+      );
+      button?.click();
+    });
+    await page.waitForFunction(
+      () => document.body.innerText.includes("Backlog burn-down"),
+      { timeout: 120000 },
+    );
+    await sleep(1200);
+    await shot("06-the-trial");
+
+    console.log("7/8  the field app");
+    await page.goto(`${BASE}/#field`, { waitUntil: "networkidle2" });
+    await page.waitForFunction(
+      () => document.body.innerText.includes("Record it done"),
+      { timeout: 45000 },
+    );
+    await sleep(800);
+    await shot("07-field-app");
+
+    console.log("8/8  method and sources");
     await page.goto(`${BASE}/#method`, { waitUntil: "networkidle2" });
     await sleep(900);
-    await shot("06-method-and-sources");
+    await shot("08-method-and-sources");
 
     // Report anything the page logged, so a console error cannot hide behind
     // a screenshot that happens to look fine.

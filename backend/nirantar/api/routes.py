@@ -35,8 +35,9 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from .. import calibration as cal
+from .. import simulation
 from ..agents import escalation as escalation_agent
-from ..agents import orchestrator, verifier
+from ..agents import orchestrator, triage, verifier
 from ..agents.base import AgentContext
 from ..config import Settings, get_settings
 from ..llm import USAGE, FORCE_DETERMINISTIC
@@ -51,6 +52,8 @@ router = APIRouter(prefix="/api")
 _HITS: dict[str, deque[float]] = defaultdict(deque)
 AGENT_RUNS_PER_HOUR_PER_CLIENT = 25
 BATCH_RUNS_PER_HOUR_PER_CLIENT = 4
+# The trial is several seconds of CPU, so it gets a tighter bucket again.
+TRIALS_PER_HOUR_PER_CLIENT = 6
 
 
 def _client_key(request: Request) -> str:
@@ -521,6 +524,220 @@ def escalation_clusters(
     """Unclosable obligations grouped by the system failure causing them."""
     debts = state.world.open_debts()
     return escalation_agent.cluster(state.world, debts, state.as_of)[:limit]
+
+
+# ---------------------------------------------------------------------------
+# The frontline worker's view
+# ---------------------------------------------------------------------------
+
+
+@router.get("/asha", tags=["demo"])
+def list_ashas(
+    state: AppState = Depends(get_state), _p=Depends(demo_read)
+) -> list[dict[str, Any]]:
+    """The block's Accredited Social Health Activists."""
+    counts: dict[str, int] = defaultdict(int)
+    for debt in state.world.open_debts():
+        person = state.world.people[debt.person_id]
+        asha = state.world.asha_for(person)
+        if asha:
+            counts[asha.id] += 1
+    return sorted(
+        (
+            {
+                "id": asha.id,
+                "display_name": asha.display_name,
+                "panchayat": asha.panchayat,
+                "villages": asha.villages,
+                "languages": asha.languages,
+                "open_tasks": asha.open_tasks,
+                "weekly_visit_capacity": asha.weekly_visit_capacity,
+                "obligations_in_her_villages": counts.get(asha.id, 0),
+            }
+            for asha in state.world.ashas.values()
+        ),
+        key=lambda row: -int(row["obligations_in_her_villages"]),
+    )
+
+
+@router.get("/asha/{asha_id}/tasks", tags=["demo"])
+def asha_tasks(
+    asha_id: str,
+    limit: int = Query(12, ge=1, le=40),
+    state: AppState = Depends(get_state),
+    _p=Depends(demo_read),
+) -> dict[str, Any]:
+    """One health worker's queue, trimmed to what fits on a cheap phone.
+
+    Deliberately minimal. An ASHA covers about a thousand people, is paid
+    per task, and is reading this on a sub-₹8,000 handset over a 2G
+    connection that may drop mid-request. Every field here is one she needs
+    in order to act; the payload size is reported so the constraint stays
+    visible rather than becoming someone's later problem.
+    """
+    asha = state.world.ashas.get(asha_id)
+    if asha is None:
+        raise HTTPException(status_code=404, detail="No such health worker.")
+
+    candidates = [
+        debt
+        for debt in state.world.open_debts()
+        if state.world.people[debt.person_id].village in asha.villages
+    ]
+    candidates.sort(
+        key=lambda debt: triage.rank_score(
+            debt, state.world.people[debt.person_id], state.as_of
+        ),
+        reverse=True,
+    )
+
+    # Group by person. One household is one walk: an ASHA who is told to
+    # visit the same courtyard twice in a week because two obligations were
+    # filed separately will, quite reasonably, stop trusting the list.
+    visits: dict[str, dict[str, Any]] = {}
+    for debt in candidates:
+        person = state.world.people[debt.person_id]
+        plan = state.plans.get(debt.plan_id or "")
+        criteria = verifier.closure_criteria(debt)
+        visit = visits.setdefault(
+            person.id,
+            {
+                # A stable reference. Two different people in the same
+                # village genuinely can share a name, so the display name is
+                # not an identifier -- keying a list on it would merge two
+                # households into one card and send her to the wrong door.
+                # In a real deployment this is the health-record id the field
+                # app already holds for that person.
+                "ref": person.id,
+                "who": person.display_name,
+                "age": person.age,
+                "sex": "F" if person.sex == "female" else "M",
+                "village": person.village,
+                "language": person.language,
+                "phone": person.phone_type.value,
+                "urgent": False,
+                "obligations": [],
+            },
+        )
+        if debt.is_breached(state.as_of):
+            visit["urgent"] = True
+        visit["obligations"].append(
+            {
+                "debt_id": debt.id,
+                "why": cal.HUMAN_LABEL.get(debt.condition, debt.condition),
+                "days_to_deadline": debt.days_to_deadline(state.as_of),
+                # One evidence type, in plain words. The machine-readable
+                # list is the server's business, not hers.
+                "closes_with": criteria["accepts_any_of"][0],
+                "closes_with_plain": criteria["in_plain_words"][0],
+                "plan": (
+                    {
+                        "what": plan.strategy,
+                        "when": next(
+                            (
+                                step.on_date.isoformat()
+                                for step in plan.steps
+                                if step.on_date and step.actor == "patient"
+                            ),
+                            None,
+                        ),
+                        "accompany": plan.asha_id == asha.id,
+                        "bring": plan.artifacts.get("asha_task_card", {}).get(
+                            "bring", []
+                        ),
+                        # The script she reads at the door. The English gloss
+                        # is deliberately NOT sent: it exists for a
+                        # supervisor reviewing outreach, and shipping it to a
+                        # handset on a metered 2G connection would double the
+                        # payload for a reader who is not there.
+                        "say": plan.artifacts.get("voice_script", {}).get("script"),
+                    }
+                    if plan
+                    else None
+                ),
+            }
+        )
+        if len(visits) >= limit:
+            break
+
+    payload: dict[str, Any] = {
+        "asha": {
+            "id": asha.id,
+            "display_name": asha.display_name,
+            "panchayat": asha.panchayat,
+            "villages": asha.villages,
+        },
+        "as_of": state.as_of.isoformat(),
+        "visits": list(visits.values()),
+    }
+    # ensure_ascii=False to match what actually goes over the wire. With the
+    # default, every Devanagari character is escaped to \uXXXX and the
+    # measurement over-reports the payload by roughly double -- which made
+    # the 2G figure look twice as bad as it is.
+    encoded = len(
+        json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    )
+    obligation_count = sum(len(v["obligations"]) for v in payload["visits"])
+    seconds = encoded / (40 * 1024 / 8)
+    payload["transfer"] = {
+        "bytes": encoded,
+        "visits": len(payload["visits"]),
+        "obligations": obligation_count,
+        "bytes_per_visit": round(encoded / max(1, len(payload["visits"]))),
+        "seconds_on_2g": round(seconds, 2),
+        "note": (
+            f"{encoded} bytes for {len(payload['visits'])} visits covering "
+            f"{obligation_count} obligations — about {round(seconds, 1)}s on a "
+            "40 kbit/s 2G link, measured as UTF-8 exactly as sent. The field "
+            "app caches this and queues evidence locally, so it keeps working "
+            "when the connection does not."
+        ),
+    }
+    return payload
+
+
+class TrialRequest(BaseModel):
+    days: int = Field(90, ge=14, le=180)
+    trials: int = Field(3, ge=1, le=8)
+    perturbation: float = Field(0.35, ge=0.0, le=1.0)
+
+
+@router.post("/trial", tags=["evidence"])
+def run_trial_comparison(
+    request: Request,
+    body: TrialRequest = Body(default_factory=TrialRequest),
+    state: AppState = Depends(get_state),
+    _p=Depends(demo_write),
+) -> dict[str, Any]:
+    """Run the controlled trial: both arms, N days, Monte Carlo over worlds.
+
+    Deliberately does three things it would be easier not to do:
+
+    * outcomes are drawn from a ground-truth attendance model whose
+      coefficients are perturbed away from the ones the planner believes, so
+      the planner is never graded against its own assumptions;
+    * the equity weighting is ablated, so its cost in closures and its
+      benefit in fairness are both measured;
+    * nothing is written to the Impact Ledger. Simulated outcomes must never
+      be mixed into the signed record of real closures, which is the whole
+      reason that record is worth anything.
+
+    It also does not touch the live demo world -- each trial generates its
+    own block from the seed.
+    """
+    settings = get_settings()
+    if settings.demo_mode:
+        # CPU-bound and a few seconds long, so it gets its own tighter bucket.
+        _rate_limit(request, "trial", TRIALS_PER_HOUR_PER_CLIENT)
+    started = time.perf_counter()
+    result = simulation.compare(
+        days=body.days,
+        trials=body.trials,
+        seed=state.settings.seed,
+        perturbation=body.perturbation,
+    )
+    result["elapsed_seconds"] = round(time.perf_counter() - started, 2)
+    return result
 
 
 @router.post("/escalations/run", tags=["agents"])

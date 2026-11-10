@@ -186,8 +186,6 @@ def worklist(
     matches all sit below the severity cut, which is exactly the kind of
     quiet emptiness an operator would read as "no work here".
     """
-    from .. import calibration as cal
-
     candidates = [
         debt
         for debt in world.debts.values()
@@ -202,15 +200,14 @@ def worklist(
             if world.people[debt.person_id].panchayat == panchayat
         ]
 
-    def quick_score(debt: CareDebt) -> float:
-        severity = cal.SEVERITY_DALY_WEIGHT.get(debt.condition, 2.0)
-        remaining = debt.days_to_deadline(as_of)
-        deadline_days = cal.CLINICAL_DEADLINE_DAYS.get(debt.condition, 30)
-        if remaining < 0:
-            urgency = 1.7 + min(1.0, abs(remaining) / (deadline_days * 3))
-        else:
-            urgency = 1.0 + 0.8 * (1.0 - min(1.0, remaining / max(1, deadline_days)))
-        return severity * urgency
-
-    candidates.sort(key=quick_score, reverse=True)
+    # The same ranking the trial simulation uses, including the equity
+    # weighting. Previously this computed severity x urgency only, so the
+    # queue order silently disagreed with the risk score the interface
+    # displayed.
+    candidates.sort(
+        key=lambda debt: triage.rank_score(
+            debt, world.people[debt.person_id], as_of
+        ),
+        reverse=True,
+    )
     return candidates[:limit]

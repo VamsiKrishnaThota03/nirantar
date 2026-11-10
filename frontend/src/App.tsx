@@ -3,14 +3,18 @@ import { api, type Overview } from "./lib/api";
 import { compact, dateFull, n, pct } from "./lib/format";
 import { AgentTheatre } from "./components/AgentTheatre";
 import { DistrictView } from "./components/DistrictView";
+import { FieldView } from "./components/FieldView";
 import { LedgerView } from "./components/LedgerView";
 import { MethodView } from "./components/MethodView";
+import { TrialView } from "./components/TrialView";
 
-type Tab = "district" | "agents" | "ledger" | "method";
+type Tab = "district" | "agents" | "trial" | "field" | "ledger" | "method";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "district", label: "The gap" },
   { id: "agents", label: "Watch the agents" },
+  { id: "trial", label: "The trial" },
+  { id: "field", label: "Field app" },
   { id: "ledger", label: "Impact ledger" },
   { id: "method", label: "Method & sources" },
 ];
@@ -150,6 +154,8 @@ export default function App() {
 
         {tab === "district" && <DistrictView refreshKey={refreshKey} />}
         {tab === "agents" && <AgentTheatre onLedgerChange={bumpRefresh} />}
+        {tab === "trial" && <TrialView />}
+        {tab === "field" && <FieldView onLedgerChange={bumpRefresh} />}
         {tab === "ledger" && (
           <LedgerView refreshKey={refreshKey} onLedgerChange={bumpRefresh} />
         )}

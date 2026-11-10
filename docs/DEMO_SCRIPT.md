@@ -99,7 +99,44 @@ Point at the green verification banner:
 > through which an obligation can be marked done without evidence — that
 > absence is the feature."
 
-## 2:45 — Close (15s)
+## 2:45 — The trial, if you have the time (30s)
+
+If your video can run to 3.5 minutes, this is the strongest 30 seconds in it.
+Go to **The trial**, hit **Run the trial**.
+
+> "Everything I've shown you so far is my own model talking about itself. So:
+> ninety days, two arms, same population, same effort budget. And the outcomes
+> are drawn from a *different* behavioural model than the planner optimises
+> against — perturbed 35% — because if I graded the planner against its own
+> beliefs, 'Nirantar wins' would be arithmetic, not a finding."
+
+> "1.7× more obligations closed, at 21% of the household cost per closure,
+> ahead in all three worlds. And the backlog actually burns down — the status
+> quo line barely moves."
+
+Then scroll to the equity section — this is the bit that builds trust:
+
+> "An efficiency objective wants to work the easy cases. So we audited it.
+> Village routing closes the distance gap completely: the furthest quintile
+> ends up served as often as the nearest. The wage gap we did *not* close —
+> it's 1.42 in the status quo and 1.40 here. The weighting narrows it from
+> 1.69 to 1.40 and costs us 6% of total closures. That's a real trade-off and
+> I'm showing it to you as one."
+
+## 3:15 — The field app (20s)
+
+> "Last thing. A district dashboard is for someone with a laptop. This is for
+> the ASHA who actually walks to the house."
+
+Switch your network off, mark something done.
+
+> "One household per card, not one obligation — so she's never sent to the
+> same courtyard twice. The evidence bar is on the card before she sets off.
+> And it's offline: that just queued on the handset and will sync when a
+> signal comes back. 1.6 KB per household, under four seconds for her whole
+> queue on 2G."
+
+## 3:35 — Close (15s)
 
 Go to **Method & sources** briefly.
 

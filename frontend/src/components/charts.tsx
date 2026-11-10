@@ -694,3 +694,315 @@ function ScaleRamp() {
     </div>
   );
 }
+
+/* ------------------------------------------------------------------------ */
+/* Line chart with a crosshair. Two series max, one shared y-axis.          */
+/* Never a second y-scale: two measures of different scale get two charts.  */
+/* ------------------------------------------------------------------------ */
+
+export type Series = {
+  label: string;
+  color: string;
+  points: { x: number; y: number }[];
+};
+
+export function LineChart({
+  series,
+  yLabel,
+  xLabel,
+  formatY = (value: number) => n(value),
+  height = 230,
+}: {
+  series: Series[];
+  yLabel: string;
+  xLabel: string;
+  formatY?: (value: number) => string;
+  height?: number;
+}) {
+  const { ref, show, hide, node } = useTooltip();
+  const width = 760;
+  const padLeft = 54;
+  const padBottom = 30;
+  const padTop = 12;
+  const plotWidth = width - padLeft - 16;
+  const plotHeight = height - padBottom - padTop;
+
+  const allPoints = series.flatMap((item) => item.points);
+  if (allPoints.length === 0) return null;
+  const maxX = Math.max(...allPoints.map((point) => point.x), 1);
+  const maxY = nice(Math.max(...allPoints.map((point) => point.y), 1));
+
+  const sx = (x: number) => padLeft + (x / maxX) * plotWidth;
+  const sy = (y: number) => padTop + plotHeight - (y / maxY) * plotHeight;
+
+  const path = (points: { x: number; y: number }[]) =>
+    points
+      .map((point, index) => `${index === 0 ? "M" : "L"}${sx(point.x)},${sy(point.y)}`)
+      .join(" ");
+
+  const ticksY = [0, maxY / 2, maxY];
+  const ticksX = [0, Math.round(maxX / 2), maxX];
+
+  return (
+    <div className="chart-wrap" ref={ref}>
+      <svg
+        className="chart"
+        viewBox={`0 0 ${width} ${height}`}
+        role="img"
+        aria-label={`${yLabel} over ${xLabel}, comparing ${series.map((s) => s.label).join(" and ")}`}
+      >
+        {ticksY.map((tick) => (
+          <g key={tick}>
+            <line
+              className="gridline"
+              x1={padLeft}
+              y1={sy(tick)}
+              x2={width - 16}
+              y2={sy(tick)}
+            />
+            <text className="tick" x={padLeft - 8} y={sy(tick) + 4} textAnchor="end">
+              {formatY(tick)}
+            </text>
+          </g>
+        ))}
+        {ticksX.map((tick) => (
+          <text
+            key={tick}
+            className="tick"
+            x={sx(tick)}
+            y={height - padBottom + 18}
+            textAnchor="middle"
+          >
+            {tick}
+          </text>
+        ))}
+        <text
+          className="tick"
+          x={padLeft + plotWidth / 2}
+          y={height - 2}
+          textAnchor="middle"
+        >
+          {xLabel}
+        </text>
+        <line
+          className="axisline"
+          x1={padLeft}
+          y1={padTop}
+          x2={padLeft}
+          y2={padTop + plotHeight}
+        />
+
+        {series.map((item, seriesIndex) => {
+          const last = item.points[item.points.length - 1];
+          // Two series can finish at almost the same value, in which case
+          // their endpoint labels land on top of each other. Nudge them
+          // apart rather than letting them overlap.
+          const others = series
+            .filter((_, index) => index !== seriesIndex)
+            .map((other) => other.points[other.points.length - 1]?.y ?? 0);
+          const collides = others.some(
+            (value) => Math.abs(sy(value) - sy(last?.y ?? 0)) < 14,
+          );
+          const nudge = collides && seriesIndex > 0 ? 16 : 0;
+          return (
+            <g key={item.label}>
+              <path
+                d={path(item.points)}
+                fill="none"
+                stroke={item.color}
+                strokeWidth={2}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+              />
+              {/* Direct label at the endpoint rather than a value on every
+                  point. */}
+              {last && (
+                <text
+                  x={sx(last.x) - 4}
+                  y={sy(last.y) - 8 + nudge}
+                  textAnchor="end"
+                  style={{ fontSize: 11.5, fontWeight: 620 }}
+                  fill={item.color}
+                >
+                  {formatY(last.y)}
+                </text>
+              )}
+            </g>
+          );
+        })}
+
+        {/* One hit band per x position, so the hit target is far wider than
+            the 2px line and a crosshair can snap to the nearest day. */}
+        {Array.from({ length: Math.min(maxX + 1, 120) }, (_, index) => {
+          const step = Math.max(1, Math.round((maxX + 1) / Math.min(maxX + 1, 120)));
+          const xValue = index * step;
+          const bandWidth = plotWidth / Math.min(maxX + 1, 120);
+          return (
+            <rect
+              key={xValue}
+              className="hit"
+              x={sx(xValue) - bandWidth / 2}
+              y={padTop}
+              width={bandWidth}
+              height={plotHeight}
+              onMouseMove={(event) => {
+                show(
+                  {
+                    title: `${xLabel} ${xValue}`,
+                    rows: series.map((item) => {
+                      const found =
+                        item.points.find((point) => point.x === xValue) ??
+                        item.points[item.points.length - 1];
+                      return { k: item.label, v: formatY(found?.y ?? 0) };
+                    }),
+                  },
+                  event,
+                );
+              }}
+              onMouseLeave={hide}
+            />
+          );
+        })}
+      </svg>
+      {node}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------------ */
+/* Reliability diagram: predicted versus what actually happened.            */
+/* ------------------------------------------------------------------------ */
+
+export function ReliabilityChart({
+  rows,
+}: {
+  rows: {
+    bucket: string;
+    n: number;
+    predicted_no_show: number;
+    realised_no_show: number;
+    error: number;
+  }[];
+}) {
+  const { ref, show, hide, node } = useTooltip();
+  const size = 340;
+  // Left padding has to clear the tick labels *and* the rotated axis title;
+  // at 42 the title overlapped the 50% tick.
+  const pad = 62;
+  const plot = size - pad - 16;
+  const sx = (value: number) => pad + value * plot;
+  const sy = (value: number) => pad + plot - value * plot;
+  const maxN = Math.max(...rows.map((row) => row.n), 1);
+
+  return (
+    <div className="chart-wrap" ref={ref}>
+      <svg
+        className="chart"
+        viewBox={`0 0 ${size} ${size}`}
+        style={{ maxWidth: 380 }}
+        role="img"
+        aria-label="Predicted no-show against realised no-show. Points on the diagonal would mean a perfectly calibrated model."
+      >
+        {[0, 0.25, 0.5, 0.75, 1].map((tick) => (
+          <g key={tick}>
+            <line
+              className="gridline"
+              x1={pad}
+              y1={sy(tick)}
+              x2={pad + plot}
+              y2={sy(tick)}
+            />
+            <text className="tick" x={pad - 7} y={sy(tick) + 4} textAnchor="end">
+              {Math.round(tick * 100)}%
+            </text>
+            <text
+              className="tick"
+              x={sx(tick)}
+              y={size - 20}
+              textAnchor="middle"
+            >
+              {Math.round(tick * 100)}%
+            </text>
+          </g>
+        ))}
+        {/* Perfect calibration. Dashed is legitimate here: it marks a
+            reference line, not a grid. */}
+        <line
+          x1={sx(0)}
+          y1={sy(0)}
+          x2={sx(1)}
+          y2={sy(1)}
+          stroke="var(--axis)"
+          strokeWidth={1.5}
+          strokeDasharray="4 4"
+        />
+        <text
+          x={sx(0.62)}
+          y={sy(0.72)}
+          className="tick"
+          style={{ fontSize: 10.5 }}
+        >
+          perfectly calibrated
+        </text>
+
+        {rows.map((row) => {
+          const radius = 4 + (row.n / maxN) * 7;
+          return (
+            <g key={row.bucket}>
+              <circle
+                cx={sx(row.predicted_no_show)}
+                cy={sy(row.realised_no_show)}
+                r={radius}
+                fill="var(--series-1)"
+                stroke="var(--surface-1)"
+                strokeWidth={2}
+              />
+              <circle
+                className="hit"
+                cx={sx(row.predicted_no_show)}
+                cy={sy(row.realised_no_show)}
+                r={Math.max(14, radius + 8)}
+                onMouseMove={(event) =>
+                  show(
+                    {
+                      title: `Predicted ${row.bucket}`,
+                      rows: [
+                        { k: "Contacts", v: n(row.n) },
+                        { k: "Predicted", v: pct(row.predicted_no_show, 1) },
+                        { k: "Actually happened", v: pct(row.realised_no_show, 1) },
+                        {
+                          k: "Error",
+                          v: `${row.error > 0 ? "+" : ""}${pct(row.error, 1)}`,
+                        },
+                      ],
+                    },
+                    event,
+                  )
+                }
+                onMouseLeave={hide}
+              />
+            </g>
+          );
+        })}
+        <text
+          className="tick"
+          x={pad + plot / 2}
+          y={size - 4}
+          textAnchor="middle"
+        >
+          predicted no-show
+        </text>
+        <text
+          className="tick"
+          transform={`rotate(-90 14 ${pad + plot / 2})`}
+          x={14}
+          y={pad + plot / 2}
+          textAnchor="middle"
+        >
+          realised no-show
+        </text>
+      </svg>
+      {node}
+    </div>
+  );
+}

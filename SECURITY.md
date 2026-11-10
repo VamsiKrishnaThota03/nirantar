@@ -21,7 +21,7 @@ audited:
 | Surface | Access | Why |
 |---|---|---|
 | `/api/ledger/*`, `/api/calibration`, `/api/health` | **Anonymous, always** | A tamper-evident impact record that only we can read is worth nothing. The ledger carries no identifying data by construction. |
-| Aggregate district views, person-level demo views, agent runs | Anonymous **only while `DEMO_MODE=true`** | Every record is generated and fictional, and the point of a public demo is that a judge or an NGO can open it without an account. |
+| Aggregate district views, person-level demo views, the field-app queue, agent runs, the trial | Anonymous **only while `DEMO_MODE=true`** | Every record is generated and fictional, and the point of a public demo is that a judge or an NGO can open it without an account. The field queue in particular carries names and villages, so it is behind the same gate and becomes operator-only the moment the process holds real records. |
 | `/api/operator/*` | **Always gated** | Touches configuration and real data paths. |
 | Everything above, when `DEMO_MODE=false` | **Always gated** | The same routes, a different audience, decided by configuration rather than by hope. |
 
@@ -119,6 +119,25 @@ Everything below is a human step we cannot do for you.
 - [ ] Complete a privacy review under the DPDP Act 2023 and your state's
       health-data policy. Nirantar's ledger is designed to be publishable,
       but **that is our design intent, not your legal clearance.**
+
+## The service worker
+
+`frontend/public/sw.js` caches the application shell — HTML, JS, CSS — so the
+field app opens with no signal. It is registered in production builds only,
+so a stale cache can never shadow the dev server.
+
+**It never caches `/api` responses.** Two reasons, and both are deliberate:
+health data should not be left lying in a browser HTTP cache, and a stale care
+obligation is more dangerous than a missing one. The field view instead keeps
+its own explicit snapshot in local storage and *tells the user* when it is
+showing cached data — a visible decision rather than an invisible one.
+
+The field app's offline evidence queue also lives in local storage, which
+means a completed visit is briefly held on the handset. That is a considered
+trade: a health worker who cannot record a visit without a signal will stop
+recording visits. The queue holds only an obligation reference and an evidence
+type, never a clinical record, and it is flushed and cleared as soon as a
+connection returns.
 
 ## Privacy design notes
 
