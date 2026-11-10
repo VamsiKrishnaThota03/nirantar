@@ -10,7 +10,7 @@
  * A trial that only reported wins would be marketing.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, type EquityReport, type TrialReport } from "../lib/api";
 import { compact, n, n1, pct, rupees } from "../lib/format";
 import { LineChart, ReliabilityChart } from "./charts";
@@ -24,7 +24,23 @@ export function TrialView() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [days, setDays] = useState(90);
-  const [trials, setTrials] = useState(3);
+  // One world by default. Locally three trials take about five seconds; on a
+  // free container instance with a fraction of a CPU the same work takes two
+  // minutes, which looks indistinguishable from a hang. Start fast and let
+  // the reader ask for more worlds.
+  const [trials, setTrials] = useState(1);
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    if (!busy) return;
+    setElapsed(0);
+    const started = Date.now();
+    const timer = window.setInterval(
+      () => setElapsed(Math.round((Date.now() - started) / 1000)),
+      1000,
+    );
+    return () => window.clearInterval(timer);
+  }, [busy]);
 
   async function run() {
     setBusy(true);
@@ -100,7 +116,9 @@ export function TrialView() {
             </select>
           </label>
           <button className="btn" onClick={run} disabled={busy}>
-            {busy ? "Running…" : "Run the trial"}
+            {busy
+              ? `Running… ${elapsed}s`
+              : `Run the trial (${trials} ${trials === 1 ? "world" : "worlds"})`}
           </button>
           {report && (
             <span className="pill">
@@ -109,12 +127,20 @@ export function TrialView() {
             </span>
           )}
         </div>
+        {busy && (
+          <p className="note">
+            Each world runs three arms over {days} days. About two seconds per
+            world on a laptop; roughly forty on a free container instance with
+            a fraction of a CPU, so give it a moment — it is working, not
+            stuck.
+          </p>
+        )}
         {!report && !busy && (
           <p className="note">
-            Roughly two seconds per trial. Nothing is written to the Impact
-            Ledger — simulated outcomes must never be mixed into the signed
-            record of real closures, which is the only reason that record is
-            worth anything.
+            A few seconds per world on a laptop, up to a minute on free
+            hosting. Nothing is written to the Impact Ledger — simulated
+            outcomes must never be mixed into the signed record of real
+            closures, which is the only reason that record is worth anything.
           </p>
         )}
       </Card>

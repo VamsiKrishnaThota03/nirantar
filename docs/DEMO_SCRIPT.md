@@ -167,6 +167,16 @@ Two things worth showing:
 
 ## Recording notes
 
+**The live demo is at https://nirantar-zbyj.onrender.com.** It is on free
+hosting, so it spins down after ~15 minutes idle and the first request then
+takes ~50 seconds. Open it a minute before you record or present.
+
+Free hosting also means a fraction of a CPU: the controlled trial takes a few
+seconds locally and up to a minute there. It defaults to one world for that
+reason, and shows a running elapsed counter so it is visibly working. If you
+are recording, either run it locally or start it and talk over it.
+
+
 - Run `make build` first so the backend serves the production bundle.
 - `make shots` captures stills if you want cutaways.
 - Dark mode records better on a projector; light mode reads better embedded in

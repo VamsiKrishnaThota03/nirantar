@@ -8,6 +8,9 @@ that closes the gap.
 Built for **Code for a Billion 2026**, the Bharat Agentic-AI Hackathon.
 Track: **Health**.
 
+**▶ Live demo: https://nirantar-zbyj.onrender.com**
+*(free hosting — it sleeps when idle, so the first load can take ~50 seconds)*
+
 [![CI](https://github.com/VamsiKrishnaThota03/nirantar/actions/workflows/ci.yml/badge.svg)](https://github.com/VamsiKrishnaThota03/nirantar/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 ![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)
@@ -122,9 +125,10 @@ verify the signatures against the published public key. If we quietly edited a
 closure to flatter ourselves, verification breaks loudly.
 
 ```bash
-curl -s localhost:8000/api/ledger/verify | jq '{valid, entries, key_id}'
-curl -s localhost:8000/api/ledger/public-key
-curl -s localhost:8000/api/ledger/entries | jq '.entries[-1]'
+BASE=https://nirantar-zbyj.onrender.com        # or http://127.0.0.1:8000
+curl -s $BASE/api/ledger/verify | jq '{valid, entries, key_id}'
+curl -s $BASE/api/ledger/public-key
+curl -s $BASE/api/ledger/entries | jq '.entries[-1]'
 ```
 
 Four properties worth noting:
@@ -269,7 +273,8 @@ npm run build          # the backend then serves it at http://127.0.0.1:8000
 # or: npm run dev      # hot-reloading dev server on 127.0.0.1:5173
 ```
 
-Open **http://127.0.0.1:8000**. Or with Docker:
+Open **http://127.0.0.1:8000**, or just use the live demo at
+https://nirantar-zbyj.onrender.com. Or with Docker:
 
 ```bash
 docker compose up --build    # publishes to 127.0.0.1:8000 only
