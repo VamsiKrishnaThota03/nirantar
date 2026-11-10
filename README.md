@@ -11,7 +11,7 @@ Track: **Health**.
 [![CI](https://github.com/VamsiKrishnaThota03/nirantar/actions/workflows/ci.yml/badge.svg)](https://github.com/VamsiKrishnaThota03/nirantar/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 ![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)
-![Tests](https://img.shields.io/badge/tests-89%20passing-brightgreen.svg)
+![Tests](https://img.shields.io/badge/tests-101%20passing-brightgreen.svg)
 
 ![The gap: 2,727 of 24,000 people in the modelled block are owed care right now](docs/screenshots/01-the-gap-light.png)
 
@@ -296,7 +296,7 @@ officer.
 ### Tests
 
 ```bash
-cd backend && ./.venv/bin/python -m pytest tests -q     # 89 passed
+cd backend && ./.venv/bin/python -m pytest tests -q     # 101 passed
 cd frontend && npm run build                            # typecheck + build
 ```
 

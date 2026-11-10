@@ -195,8 +195,20 @@ against the published public key.
 python scripts/generate_ledger_key.py
 ```
 
-Copy the whole PEM block, including the `BEGIN`/`END` lines. Treat it as a
-credential: it never goes in a file in the repository.
+That prints **one line of base64**, for `LEDGER_SIGNING_KEY_B64`. The single
+line is deliberate. A multi-line PEM pasted into a dashboard secret field gets
+its newlines flattened, and the service then dies at startup with an opaque
+`Could not deserialize key data` — which is precisely how this project's first
+deploy failed. `LEDGER_SIGNING_KEY_PEM` is still accepted and a flattened one
+is now repaired, but prefer the single line.
+
+Treat it as a credential: anyone holding it can forge ledger entries that
+verify against the published public key. It never goes in a file in the
+repository, and never anywhere it will be logged.
+
+**You can also skip this entirely.** Leave the variable unset and the service
+creates a key on boot and runs normally — you simply get a new key, and an
+empty ledger, after each deploy. For a hackathon demo that is often fine.
 
 ### 2. Create the service
 
@@ -204,8 +216,8 @@ credential: it never goes in a file in the repository.
 2. **New +** → **Blueprint**.
 3. Choose this repository. Render reads `render.yaml` and proposes one web
    service named `nirantar`.
-4. It will prompt for `LEDGER_SIGNING_KEY_PEM` because that variable is marked
-   `sync: false`. Paste the PEM from step 1.
+4. It will prompt for `LEDGER_SIGNING_KEY_B64` because that variable is marked
+   `sync: false`. Paste the single line from step 1, or leave it blank.
 5. **Apply**. The first build takes roughly 5–8 minutes: it builds the
    dashboard with Node, then the Python image.
 

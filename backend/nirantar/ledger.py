@@ -112,23 +112,101 @@ class ImpactLedger:
     # --- key management ----------------------------------------------------
 
     @staticmethod
-    def _load_or_create_key(path: Path) -> Ed25519PrivateKey:
-        # An inline PEM takes precedence over the file. Hosts with ephemeral
-        # filesystems (free container tiers, scale-to-zero platforms) would
-        # otherwise regenerate the key on every deploy, and previously signed
-        # entries could no longer be verified against the published public
-        # key -- the chain survives, but the ability to prove it does not.
-        # Supply this through the platform's secret store, never in a file.
-        inline = os.environ.get("LEDGER_SIGNING_KEY_PEM")
-        if inline and inline.strip():
-            key = serialization.load_pem_private_key(
-                inline.strip().encode("utf-8"), password=None
-            )
-            if not isinstance(key, Ed25519PrivateKey):
-                raise TypeError(
-                    "LEDGER_SIGNING_KEY_PEM is not an Ed25519 private key"
+    def _key_from_env() -> Ed25519PrivateKey | None:
+        """Load the signing key from the environment, tolerantly.
+
+        An inline key takes precedence over the file, because hosts with
+        ephemeral filesystems (free container tiers, scale-to-zero platforms)
+        would otherwise regenerate the key on every deploy -- the chain
+        survives but the ability to prove it does not.
+
+        Two forms are accepted, and the tolerance is the point:
+
+        ``LEDGER_SIGNING_KEY_B64``
+            A single line of base64: the raw 32-byte Ed25519 private key.
+            Preferred, because it cannot be mangled.
+
+        ``LEDGER_SIGNING_KEY_PEM``
+            A PKCS#8 PEM block. **Multi-line values and environment-variable
+            fields do not mix.** Secret inputs in hosting dashboards routinely
+            flatten newlines or turn them into literal backslash-n, and the
+            result is an opaque "Could not deserialize key data" crash at
+            startup -- which is exactly how this failed on its first deploy.
+            So a flattened or escaped PEM is repaired here rather than
+            rejected: real newlines are restored and the base64 body is
+            re-wrapped.
+        """
+        raw_b64 = (os.environ.get("LEDGER_SIGNING_KEY_B64") or "").strip()
+        if raw_b64:
+            import base64
+
+            try:
+                seed = base64.b64decode(raw_b64, validate=True)
+            except Exception as exc:
+                raise ValueError(
+                    "LEDGER_SIGNING_KEY_B64 is not valid base64. Generate one "
+                    "with: python scripts/generate_ledger_key.py"
+                ) from exc
+            if len(seed) != 32:
+                raise ValueError(
+                    f"LEDGER_SIGNING_KEY_B64 decoded to {len(seed)} bytes; an "
+                    "Ed25519 private key is exactly 32. Generate one with: "
+                    "python scripts/generate_ledger_key.py"
                 )
-            return key
+            return Ed25519PrivateKey.from_private_bytes(seed)
+
+        inline = (os.environ.get("LEDGER_SIGNING_KEY_PEM") or "").strip()
+        if not inline:
+            return None
+
+        key = serialization.load_pem_private_key(
+            ImpactLedger._repair_pem(inline).encode("utf-8"), password=None
+        )
+        if not isinstance(key, Ed25519PrivateKey):
+            raise TypeError("LEDGER_SIGNING_KEY_PEM is not an Ed25519 private key")
+        return key
+
+    @staticmethod
+    def _repair_pem(value: str) -> str:
+        """Put a PEM back together after an env-var field has mangled it."""
+        # Literal backslash-n, which is how many dashboards store newlines.
+        text = value.replace("\\n", "\n").replace("\\r", "").strip()
+        if "-----BEGIN" not in text:
+            raise ValueError(
+                "LEDGER_SIGNING_KEY_PEM does not look like a PEM block: no "
+                "'-----BEGIN' header found. Prefer LEDGER_SIGNING_KEY_B64, "
+                "which is a single line and cannot be mangled by a secret "
+                "field. Generate one with: python "
+                "scripts/generate_ledger_key.py"
+            )
+        if "\n" in text:
+            return text
+
+        # Fully flattened onto one line. Recover the header, the base64 body
+        # and the footer, then re-wrap the body at 64 characters.
+        import re
+
+        match = re.match(
+            r"^(-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----)\s*(.*?)\s*"
+            r"(-----END [A-Z0-9 ]*PRIVATE KEY-----)$",
+            text,
+            re.DOTALL,
+        )
+        if not match:
+            raise ValueError(
+                "LEDGER_SIGNING_KEY_PEM is on a single line and could not be "
+                "reassembled. Prefer LEDGER_SIGNING_KEY_B64 instead."
+            )
+        header, body, footer = match.groups()
+        body = re.sub(r"\s+", "", body)
+        wrapped = "\n".join(body[index : index + 64] for index in range(0, len(body), 64))
+        return f"{header}\n{wrapped}\n{footer}\n"
+
+    @staticmethod
+    def _load_or_create_key(path: Path) -> Ed25519PrivateKey:
+        from_env = ImpactLedger._key_from_env()
+        if from_env is not None:
+            return from_env
         if path.exists():
             data = path.read_bytes()
             key = serialization.load_pem_private_key(data, password=None)

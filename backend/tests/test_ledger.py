@@ -189,3 +189,124 @@ def test_concurrent_readers_and_writers_do_not_corrupt_results(app_state):
     # The chain must still be intact and sequential after concurrent appends.
     report = app_state.ledger.verify()
     assert report["valid"], report["problems"]
+
+
+# --- loading the signing key from the environment -------------------------
+
+
+def _fresh_key_material():
+    import base64
+
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    key = Ed25519PrivateKey.generate()
+    pem = key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode()
+    b64 = base64.b64encode(key.private_bytes_raw()).decode()
+    return key, pem, b64
+
+
+def _load(monkeypatch, tmp_path, **env):
+    from nirantar.ledger import ImpactLedger
+
+    for key in ("LEDGER_SIGNING_KEY_B64", "LEDGER_SIGNING_KEY_PEM"):
+        monkeypatch.delenv(key, raising=False)
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    return ImpactLedger._load_or_create_key(tmp_path / "unused.pem")
+
+
+def test_single_line_base64_key_loads(monkeypatch, tmp_path):
+    """The preferred form: one line, impossible for a secret field to mangle."""
+    original, _pem, b64 = _fresh_key_material()
+    loaded = _load(monkeypatch, tmp_path, LEDGER_SIGNING_KEY_B64=b64)
+    assert loaded.private_bytes_raw() == original.private_bytes_raw()
+
+
+def test_well_formed_pem_loads(monkeypatch, tmp_path):
+    original, pem, _b64 = _fresh_key_material()
+    loaded = _load(monkeypatch, tmp_path, LEDGER_SIGNING_KEY_PEM=pem)
+    assert loaded.private_bytes_raw() == original.private_bytes_raw()
+
+
+def test_pem_flattened_onto_one_line_is_repaired(monkeypatch, tmp_path):
+    """Regression: this is how the first Render deploy died.
+
+    The dashboard's secret field collapsed the newlines, and cryptography
+    raised an opaque "Could not deserialize key data" at startup.
+    """
+    original, pem, _b64 = _fresh_key_material()
+    flattened = " ".join(line for line in pem.strip().splitlines())
+    loaded = _load(monkeypatch, tmp_path, LEDGER_SIGNING_KEY_PEM=flattened)
+    assert loaded.private_bytes_raw() == original.private_bytes_raw()
+
+
+def test_pem_with_literal_backslash_n_is_repaired(monkeypatch, tmp_path):
+    """The other common mangling: newlines stored as the characters \\ and n."""
+    original, pem, _b64 = _fresh_key_material()
+    escaped = pem.strip().replace("\n", "\\n")
+    loaded = _load(monkeypatch, tmp_path, LEDGER_SIGNING_KEY_PEM=escaped)
+    assert loaded.private_bytes_raw() == original.private_bytes_raw()
+
+
+def test_base64_takes_precedence_over_pem(monkeypatch, tmp_path):
+    original, _pem, b64 = _fresh_key_material()
+    _other, other_pem, _ = _fresh_key_material()
+    loaded = _load(
+        monkeypatch,
+        tmp_path,
+        LEDGER_SIGNING_KEY_B64=b64,
+        LEDGER_SIGNING_KEY_PEM=other_pem,
+    )
+    assert loaded.private_bytes_raw() == original.private_bytes_raw()
+
+
+def test_a_truncated_base64_key_says_so(monkeypatch, tmp_path):
+    """A half-pasted secret must name the problem, not raise from OpenSSL."""
+    import base64
+
+    short = base64.b64encode(b"too short").decode()
+    with pytest.raises(ValueError) as excinfo:
+        _load(monkeypatch, tmp_path, LEDGER_SIGNING_KEY_B64=short)
+    assert "32" in str(excinfo.value)
+    assert "generate_ledger_key" in str(excinfo.value)
+
+
+def test_garbage_in_the_pem_variable_points_at_the_alternative(
+    monkeypatch, tmp_path
+):
+    with pytest.raises(ValueError) as excinfo:
+        _load(monkeypatch, tmp_path, LEDGER_SIGNING_KEY_PEM="not a key at all")
+    assert "LEDGER_SIGNING_KEY_B64" in str(excinfo.value)
+
+
+def test_the_generator_script_output_actually_loads(monkeypatch, tmp_path):
+    """End-to-end: whatever the script prints must be loadable.
+
+    Both forms, because the script offers both and a deploy will use one.
+    """
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[2] / "scripts" / "generate_ledger_key.py"
+    assert script.exists()
+
+    b64 = subprocess.run(
+        [sys.executable, str(script)], capture_output=True, text=True, check=True
+    ).stdout.strip()
+    assert "\n" not in b64, "the default output must be a single line"
+    assert _load(monkeypatch, tmp_path, LEDGER_SIGNING_KEY_B64=b64)
+
+    pem = subprocess.run(
+        [sys.executable, str(script), "--pem"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert "BEGIN PRIVATE KEY" in pem
+    assert _load(monkeypatch, tmp_path, LEDGER_SIGNING_KEY_PEM=pem)

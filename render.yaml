@@ -49,18 +49,28 @@ services:
       - key: LEDGER_KEY_PATH
         value: /app/var/ledger_signing_key.pem
 
-      # The Ed25519 ledger signing key, as a PEM, set as a secret in the
-      # Render dashboard. Render's free tier has an EPHEMERAL filesystem and
-      # does not support persistent disks, so without this the key would be
-      # regenerated on every deploy and previously signed entries could no
-      # longer be verified against the published public key.
+      # The Ed25519 ledger signing key, as a SINGLE LINE of base64. Render's
+      # free tier has an ephemeral filesystem and no persistent disks, so
+      # without this the key is regenerated on every deploy and previously
+      # signed entries can no longer be verified against the published public
+      # key.
+      #
+      # Single line on purpose. A multi-line PEM pasted into a dashboard
+      # secret field gets its newlines flattened, and the service then dies at
+      # startup with an opaque "Could not deserialize key data" -- which is
+      # exactly how this failed on its first deploy. One line cannot be
+      # mangled. (LEDGER_SIGNING_KEY_PEM is still accepted, and a flattened
+      # one is now repaired, but prefer this.)
       #
       # Generate one with:
       #   python scripts/generate_ledger_key.py
-      # then paste it into Render → Environment → Add Secret. `sync: false`
-      # means Render prompts for the value instead of reading it from this
-      # file, so no key material is ever committed.
-      - key: LEDGER_SIGNING_KEY_PEM
+      #
+      # `sync: false` makes Render prompt for the value rather than read it
+      # from this file, so no key material is ever committed.
+      #
+      # It is also safe to leave this UNSET: the service then creates a key on
+      # boot and runs normally, with a new key after each deploy.
+      - key: LEDGER_SIGNING_KEY_B64
         sync: false
 
       # CORS is deliberately left at its loopback default. The dashboard is

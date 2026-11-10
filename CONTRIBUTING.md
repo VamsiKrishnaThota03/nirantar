@@ -78,7 +78,7 @@ declined with an explanation.
 
 ```bash
 make setup
-make test        # 89 backend tests + frontend typecheck
+make test        # 101 backend tests + frontend typecheck
 make build
 make backend
 ```

@@ -83,7 +83,7 @@ visible before she sets off, her weekly capacity ceiling respected by the
 planner, and ~1.6 KB per household — about 3.8 s for a full queue on a
 40 kbit/s 2G link.
 
-**Engineering quality.** 89 tests, mostly adversarial. The suite asserts a
+**Engineering quality.** 101 tests, mostly adversarial. The suite asserts a
 mobile van can never initiate TB treatment, a refill is never sent to an empty
 shelf, a patient with no phone is never promised a WhatsApp message, wrong-typed
 and backdated evidence cannot close an obligation, tampering with or forging a
