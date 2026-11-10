@@ -18,6 +18,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
+class ConfigError(RuntimeError):
+    """Raised when the process is asked to run in an unsafe or unreadable
+    configuration."""
+
+
 def _bool(name: str, default: bool) -> bool:
     raw = os.environ.get(name)
     if raw is None:
@@ -29,7 +34,28 @@ def _int(name: str, default: int) -> int:
     raw = os.environ.get(name)
     if raw is None or not raw.strip():
         return default
-    return int(raw)
+    try:
+        return int(raw.strip())
+    except ValueError as exc:
+        # A mistyped environment variable should name itself, not surface as
+        # an anonymous ValueError from deep inside a dataclass default.
+        raise ConfigError(
+            f"{name}={raw!r} is not a whole number. Refusing to start on a "
+            f"configuration value this process cannot interpret."
+        ) from exc
+
+
+def _float(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return float(raw.strip())
+    except ValueError as exc:
+        raise ConfigError(
+            f"{name}={raw!r} is not a number. Refusing to start on a "
+            f"configuration value this process cannot interpret."
+        ) from exc
 
 
 def _csv(name: str, default: list[str]) -> list[str]:
@@ -37,10 +63,6 @@ def _csv(name: str, default: list[str]) -> list[str]:
     if raw is None or not raw.strip():
         return list(default)
     return [part.strip() for part in raw.split(",") if part.strip()]
-
-
-class ConfigError(RuntimeError):
-    """Raised when the process is asked to run in an unsafe configuration."""
 
 
 @dataclass
@@ -93,7 +115,9 @@ class Settings:
     anthropic_model: str = field(
         default_factory=lambda: os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5-5")
     )
-    llm_timeout_s: float = field(default_factory=lambda: float(os.environ.get("LLM_TIMEOUT_S", "45")))
+    llm_timeout_s: float = field(
+        default_factory=lambda: _float("LLM_TIMEOUT_S", 45.0)
+    )
     # Hard ceiling on spend during a public demo.
     llm_max_calls_per_hour: int = field(
         default_factory=lambda: _int("LLM_MAX_CALLS_PER_HOUR", 400)

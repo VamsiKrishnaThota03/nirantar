@@ -16,8 +16,33 @@ from .api.routes import router
 from .config import ConfigError, get_settings
 from .state import get_state
 
+_LOG_LEVELS = {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG", "NOTSET"}
+
+
+def _log_level() -> str:
+    """Resolve LOG_LEVEL tolerantly.
+
+    ``logging`` only accepts upper-case level names, so a perfectly ordinary
+    ``LOG_LEVEL=info`` -- which is what every container platform's own config
+    conventionally uses, including our own render.yaml -- raised
+    ``ValueError: Unknown level: 'info'`` at import time and took the whole
+    service down before it served a request. A configuration value should
+    never be able to do that: normalise it, and fall back loudly rather than
+    crashing if it is unrecognisable.
+    """
+    raw = os.environ.get("LOG_LEVEL", "INFO").strip().upper()
+    if raw in _LOG_LEVELS:
+        return raw
+    print(
+        f"LOG_LEVEL={raw!r} is not a recognised logging level; using INFO. "
+        f"Valid values: {', '.join(sorted(_LOG_LEVELS))}.",
+        flush=True,
+    )
+    return "INFO"
+
+
 logging.basicConfig(
-    level=os.environ.get("LOG_LEVEL", "INFO"),
+    level=_log_level(),
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
 log = logging.getLogger("nirantar")
@@ -136,7 +161,8 @@ def main() -> None:
         "nirantar.main:app",
         host=settings.host,
         port=settings.port,
-        log_level=os.environ.get("LOG_LEVEL", "info").lower(),
+        # uvicorn wants the lower-case spelling; same validated value.
+        log_level=_log_level().lower(),
     )
 
 

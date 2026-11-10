@@ -110,3 +110,91 @@ def test_aggregate_views_are_anonymous_in_demo_mode_only(client):
     assert client.get("/api/overview").status_code == 200
     body = client.get("/api/overview").json()
     assert body["demo_mode"] is True
+
+
+# --- configuration robustness ---------------------------------------------
+
+
+def test_lowercase_log_level_does_not_crash_the_process(monkeypatch):
+    """Regression: LOG_LEVEL=info took the whole service down on first deploy.
+
+    ``logging`` accepts only upper-case level names, but every container
+    platform's config conventionally uses lower case -- including this
+    project's own render.yaml. The result was
+    ``ValueError: Unknown level: 'info'`` raised at import time, before a
+    single request was served.
+    """
+    import importlib
+    import logging
+
+    for value in ("info", "INFO", "Info", "debug", "warning", " info "):
+        monkeypatch.setenv("LOG_LEVEL", value)
+        from nirantar import main
+
+        importlib.reload(main)
+        assert main._log_level() == value.strip().upper()
+        # And it must be a level ``logging`` will actually accept.
+        logging.getLogger("probe").setLevel(main._log_level())
+
+
+def test_an_unrecognisable_log_level_falls_back_instead_of_crashing(monkeypatch):
+    import importlib
+
+    monkeypatch.setenv("LOG_LEVEL", "chatty")
+    from nirantar import main
+
+    importlib.reload(main)
+    assert main._log_level() == "INFO"
+
+
+def test_a_mistyped_numeric_setting_names_itself(monkeypatch):
+    """An anonymous ValueError from a dataclass default is not a diagnosis."""
+    monkeypatch.setenv("PORT", "eight thousand")
+    config.reset_settings_for_tests()
+    with pytest.raises(config.ConfigError) as excinfo:
+        config.get_settings()
+    assert "PORT" in str(excinfo.value)
+
+    monkeypatch.delenv("PORT")
+    monkeypatch.setenv("LLM_TIMEOUT_S", "soon")
+    config.reset_settings_for_tests()
+    with pytest.raises(config.ConfigError) as excinfo:
+        config.get_settings()
+    assert "LLM_TIMEOUT_S" in str(excinfo.value)
+
+
+def test_the_shipped_render_blueprint_env_actually_boots(monkeypatch):
+    """Apply render.yaml's own environment and import the app.
+
+    The first deploy failed on a value this project ships itself, so the
+    shipped deployment config is now exercised rather than assumed.
+    """
+    import importlib
+    from pathlib import Path
+
+    blueprint = Path(__file__).resolve().parents[2] / "render.yaml"
+    if not blueprint.exists():
+        pytest.skip("render.yaml not present")
+    try:
+        import yaml
+    except ImportError:
+        pytest.skip("pyyaml not installed")
+
+    service = yaml.safe_load(blueprint.read_text())["services"][0]
+    for entry in service["envVars"]:
+        if "value" in entry:
+            monkeypatch.setenv(entry["key"], str(entry["value"]))
+    # Keep the database and key out of the blueprint's container paths.
+    monkeypatch.setenv("DB_PATH", "/tmp/render-probe.sqlite3")
+    monkeypatch.setenv("LEDGER_KEY_PATH", "/tmp/render-probe-key.pem")
+
+    config.reset_settings_for_tests()
+    from nirantar import main
+
+    importlib.reload(main)
+    assert main.app is not None
+    settings = config.get_settings()
+    # The blueprint deliberately sets a wildcard bind: Render's own proxy has
+    # to reach the container. The application default stays loopback.
+    assert settings.host == "0.0.0.0"
+    assert settings.demo_mode is True

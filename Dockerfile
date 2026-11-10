@@ -25,7 +25,6 @@ RUN pip install --no-cache-dir -r backend/requirements.txt
 COPY backend/ ./backend/
 COPY --from=frontend /build/dist ./frontend/dist
 COPY LICENSE README.md SECURITY.md ./
-COPY docs/ ./docs/
 
 # Writable location for the SQLite database and the ledger signing key.
 RUN mkdir -p /app/var && chown -R nirantar:nirantar /app/var

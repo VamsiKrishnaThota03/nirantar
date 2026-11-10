@@ -1,0 +1,26 @@
+# Keep the build context small and make sure nothing host-local or secret
+# can be copied into the image.
+
+.git
+.github
+**/node_modules
+**/dist
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+
+# Runtime state: the SQLite database and the ledger signing key. These must
+# never be baked into an image.
+**/var
+**/*.sqlite3
+**/*.sqlite3-wal
+**/*.sqlite3-shm
+**/*.pem
+.env
+.env.*
+!.env.example
+
+# Documentation screenshots are several megabytes and have no business in a
+# runtime image.
+docs/screenshots
