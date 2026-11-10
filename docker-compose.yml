@@ -1,0 +1,47 @@
+services:
+  nirantar:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # Published to loopback only. The container itself binds 0.0.0.0 so the
+    # stack's own networking works; this mapping is the actual boundary, and
+    # it keeps the service off every other interface on the host.
+    #
+    # If a colleague needs to reach it, forward the port over SSH:
+    #   ssh -L 8000:127.0.0.1:8000 you@this-host
+    # Do not widen this mapping.
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      # Generated, fictional data. Flipping this to false makes the process
+      # refuse to start unless an identity provider is configured.
+      DEMO_MODE: "true"
+      DATA_SEED: "20260815"
+      LOG_LEVEL: "info"
+      # Named origin only; never a wildcard.
+      CORS_ORIGINS: "http://127.0.0.1:8000"
+      # Optional. Absent means the agents run on their deterministic cores,
+      # which is a supported mode. Referenced, never inlined -- no credential
+      # value belongs in a delivered file.
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      ANTHROPIC_MODEL: "${ANTHROPIC_MODEL:-claude-sonnet-5-5}"
+      LLM_MAX_CALLS_PER_HOUR: "${LLM_MAX_CALLS_PER_HOUR:-400}"
+      # Required before this process may hold real records. See SECURITY.md.
+      OIDC_ISSUER: "${OIDC_ISSUER:-}"
+      OIDC_AUDIENCE: "${OIDC_AUDIENCE:-}"
+      OIDC_JWKS_URL: "${OIDC_JWKS_URL:-}"
+    volumes:
+      # The SQLite database and the Ed25519 ledger signing key live here.
+      # Losing this volume loses the signed impact record.
+      - nirantar-data:/app/var
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  nirantar-data:

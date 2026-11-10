@@ -1,0 +1,89 @@
+# Render Blueprint — public demo on generated data.
+#
+# Deploy: in the Render dashboard choose "New +" → "Blueprint", point it at
+# this repository, and Render reads this file. Full walkthrough in
+# docs/DEPLOY.md.
+#
+# This blueprint deliberately configures the DEMO deployment: fictional
+# records, anonymous aggregate reads, and no model key. Holding real patient
+# records requires the identity-provider settings in SECURITY.md, and the
+# process refuses to start without them.
+
+services:
+  - type: web
+    name: nirantar
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    region: singapore # closest region to the users this is built for
+    healthCheckPath: /api/health
+    autoDeploy: true
+
+    envVars:
+      # Render terminates TLS and reverse-proxies to the container, so the
+      # container must bind all interfaces for Render's proxy to reach it.
+      # The application default is 127.0.0.1 (backend/nirantar/config.py);
+      # this override is the platform's, which is why it lives here and not
+      # in the code.
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: "8000"
+
+      # Generated, fictional data. Setting this to false makes the process
+      # refuse to start unless OIDC_ISSUER and OIDC_AUDIENCE are present.
+      - key: DEMO_MODE
+        value: "true"
+
+      # Fixed seed: the district is byte-identical on every deploy, so a
+      # recorded demo matches what a judge sees live.
+      - key: DATA_SEED
+        value: "20260815"
+
+      - key: LOG_LEVEL
+        value: info
+
+      - key: DB_PATH
+        value: /app/var/nirantar.sqlite3
+      - key: LEDGER_KEY_PATH
+        value: /app/var/ledger_signing_key.pem
+
+      # The Ed25519 ledger signing key, as a PEM, set as a secret in the
+      # Render dashboard. Render's free tier has an EPHEMERAL filesystem and
+      # does not support persistent disks, so without this the key would be
+      # regenerated on every deploy and previously signed entries could no
+      # longer be verified against the published public key.
+      #
+      # Generate one with:
+      #   python scripts/generate_ledger_key.py
+      # then paste it into Render → Environment → Add Secret. `sync: false`
+      # means Render prompts for the value instead of reading it from this
+      # file, so no key material is ever committed.
+      - key: LEDGER_SIGNING_KEY_PEM
+        sync: false
+
+      # CORS is deliberately left at its loopback default. The dashboard is
+      # served by this same service, so browser requests are same-origin and
+      # no cross-origin grant is needed. Adding a wildcard here would be a
+      # gratuitous widening.
+
+      # Deliberately not set: the agents run on their deterministic cores on
+      # the public demo, which costs nothing and cannot be used by strangers
+      # to spend tokens. To enable Claude, add ANTHROPIC_API_KEY as a secret
+      # in the Render dashboard (never in this file) and redeploy.
+      #
+      # - key: ANTHROPIC_API_KEY
+      #   sync: false
+
+    # A persistent disk is the better answer for the database, but Render
+    # does not offer disks on the free plan. On free, the SQLite file is
+    # ephemeral: the generated district is rebuilt deterministically from
+    # DATA_SEED on every boot, and the ledger restarts empty while the
+    # signing key stays stable via the secret above. If you move to a paid
+    # instance, uncomment this and the impact record persists across deploys.
+    #
+    # disk:
+    #   name: nirantar-data
+    #   mountPath: /app/var
+    #   sizeGB: 1
