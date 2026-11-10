@@ -6,7 +6,12 @@ India screens superbly and follows up terribly. Nirantar is an agentic system
 that closes the gap.
 
 Built for **Code for a Billion 2026**, the Bharat Agentic-AI Hackathon.
-Track: **Health**. Licensed Apache-2.0.
+Track: **Health**.
+
+[![CI](https://github.com/VamsiKrishnaThota03/nirantar/actions/workflows/ci.yml/badge.svg)](https://github.com/VamsiKrishnaThota03/nirantar/actions/workflows/ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)
+![Tests](https://img.shields.io/badge/tests-70%20passing-brightgreen.svg)
 
 ![The gap: 2,727 of 24,000 people in the modelled block are owed care right now](docs/screenshots/01-the-gap-light.png)
 
